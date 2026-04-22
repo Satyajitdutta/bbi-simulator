@@ -656,77 +656,160 @@ Return ONLY valid JSON with this schema:
                         {INDUSTRIES.map(ind => <option key={ind} value={ind}>{ind}</option>)}
                       </select>
                     </div>
+                    {/* ── DNA CARD PICKER (Layer 1) ── */}
                     <div className="fgrp">
-                      <label className="flabel text-[var(--gold)] mt-2">Org-Specific Behavioral DNA (Vision Layer 1)</label>
-                      <div className="flex gap-2 mb-2">
-                        <select
-                          className="finput bg-[#0a0d14] text-xs flex-1"
-                          value={dnaCategory}
-                          onChange={e => {
-                            const val = e.target.value;
-                            setDnaCategory(val);
-                            if (val === "other") { setOrgDNA(""); } else {
-                              const cat = filteredDNA.find(c => c.id === val);
-                              if (cat) { setDnaOption(cat.options[0].id); setOrgDNA(cat.options[0].value); }
-                            }
-                          }}
-                        >
-                          {filteredDNA.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-                          <option value="other">Other / Custom</option>
-                        </select>
-                        {dnaCategory !== "other" && (
-                          <select
-                            className="finput bg-[#0a0d14] text-xs flex-1"
-                            value={dnaOption}
-                            onChange={e => {
-                              const opt = filteredDNA.find(c => c.id === dnaCategory)?.options.find(o => o.id === e.target.value);
-                              setDnaOption(e.target.value);
-                              if (opt) setOrgDNA(opt.value);
-                              if (e.target.value === "custom") setOrgDNA("");
+                      <label className="flabel mt-2" style={{ color: "var(--gold)" }}>
+                        Org-Specific Behavioral DNA
+                        <span className="ml-2 text-[9px] font-normal opacity-60 normal-case tracking-normal">Vision Layer 1</span>
+                      </label>
+                      {/* Category pill row */}
+                      <div className="flex gap-2 flex-wrap mb-3">
+                        {filteredDNA.map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              setDnaCategory(c.id);
+                              setDnaOption(c.options[0].id);
+                              setOrgDNA(c.options[0].value);
                             }}
-                          >
-                            {filteredDNA.find(c => c.id === dnaCategory)?.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                            <option value="custom">Custom Text...</option>
-                          </select>
-                        )}
+                            className="text-[10px] font-bold uppercase tracking-wide px-3 py-1.5 rounded-full border transition-all"
+                            style={dnaCategory === c.id
+                              ? { borderColor: "var(--gold)", color: "var(--gold)", background: "rgba(201,149,58,0.12)" }
+                              : { borderColor: "var(--br)", color: "var(--dim)", background: "transparent" }}
+                          >{c.label}</button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => { setDnaCategory("other"); setOrgDNA(""); }}
+                          className="text-[10px] font-bold uppercase tracking-wide px-3 py-1.5 rounded-full border transition-all"
+                          style={dnaCategory === "other"
+                            ? { borderColor: "var(--gold)", color: "var(--gold)", background: "rgba(201,149,58,0.12)" }
+                            : { borderColor: "var(--br)", color: "var(--dim)", background: "transparent" }}
+                        >Custom</button>
                       </div>
-                      <textarea className="finput bg-[#0a0d14] h-20 text-xs" placeholder="Describe the behavioral traits of your top 10% performers." value={orgDNA} onChange={e => setOrgDNA(e.target.value)} />
+
+                      {/* Option cards */}
+                      {dnaCategory !== "other" && (() => {
+                        const cat = filteredDNA.find(c => c.id === dnaCategory);
+                        return cat ? (
+                          <div className="grid grid-cols-2 gap-2 mb-3">
+                            {cat.options.map(opt => {
+                              const sel = dnaOption === opt.id;
+                              return (
+                                <motion.button
+                                  key={opt.id}
+                                  type="button"
+                                  onClick={() => { setDnaOption(opt.id); setOrgDNA(opt.value); }}
+                                  whileTap={{ scale: 0.97 }}
+                                  className="text-left p-3 rounded-lg border text-[11px] font-semibold transition-all leading-snug"
+                                  style={sel
+                                    ? { borderColor: "var(--gold)", color: "var(--gold)", background: "rgba(201,149,58,0.1)" }
+                                    : { borderColor: "var(--br)", color: "var(--muted)", background: "rgba(17,21,32,0.5)" }}
+                                >
+                                  {sel && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--gold)] mr-1.5 mb-0.5" />}
+                                  {opt.label}
+                                </motion.button>
+                              );
+                            })}
+                          </div>
+                        ) : null;
+                      })()}
+
+                      {/* Selected preview / custom textarea */}
+                      <AnimatePresence mode="wait">
+                        <motion.textarea
+                          key={dnaCategory + dnaOption}
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="finput bg-[#0a0d14] text-xs"
+                          style={{ minHeight: 72, resize: "vertical" }}
+                          placeholder={dnaCategory === "other" ? "Describe the behavioral traits of your top 10% performers..." : ""}
+                          value={orgDNA}
+                          onChange={e => setOrgDNA(e.target.value)}
+                          readOnly={dnaCategory !== "other" && dnaOption !== "custom"}
+                        />
+                      </AnimatePresence>
                     </div>
+
+                    {/* ── TEAM DYNAMIC CARD PICKER (Layer 4) ── */}
                     <div className="fgrp">
-                      <label className="flabel text-[var(--blue-light)] mt-2">Existing Team Dynamic (Vision Layer 4)</label>
-                      <div className="flex gap-2 mb-2">
-                        <select
-                          className="finput bg-[#0a0d14] text-xs flex-1"
-                          value={teamCategory}
-                          onChange={e => {
-                            const val = e.target.value;
-                            setTeamCategory(val);
-                            if (val === "other") { setTeamContext(""); } else {
-                              const cat = TEAM_DYNAMIC_TEMPLATES.find(c => c.id === val);
-                              if (cat) { setTeamOption(cat.options[0].id); setTeamContext(cat.options[0].value); }
-                            }
-                          }}
-                        >
-                          {TEAM_DYNAMIC_TEMPLATES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-                          <option value="other">Other / Custom</option>
-                        </select>
-                        {teamCategory !== "other" && (
-                          <select
-                            className="finput bg-[#0a0d14] text-xs flex-1"
-                            value={teamOption}
-                            onChange={e => {
-                              const opt = TEAM_DYNAMIC_TEMPLATES.find(c => c.id === teamCategory)?.options.find(o => o.id === e.target.value);
-                              setTeamOption(e.target.value);
-                              if (opt) setTeamContext(opt.value);
-                              if (e.target.value === "custom") setTeamContext("");
+                      <label className="flabel mt-2" style={{ color: "var(--blue-light)" }}>
+                        Existing Team Dynamic
+                        <span className="ml-2 text-[9px] font-normal opacity-60 normal-case tracking-normal">Vision Layer 4</span>
+                      </label>
+                      {/* Category pill row */}
+                      <div className="flex gap-2 flex-wrap mb-3">
+                        {TEAM_DYNAMIC_TEMPLATES.map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              setTeamCategory(c.id);
+                              setTeamOption(c.options[0].id);
+                              setTeamContext(c.options[0].value);
                             }}
-                          >
-                            {TEAM_DYNAMIC_TEMPLATES.find(c => c.id === teamCategory)?.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                            <option value="custom">Custom Text...</option>
-                          </select>
-                        )}
+                            className="text-[10px] font-bold uppercase tracking-wide px-3 py-1.5 rounded-full border transition-all"
+                            style={teamCategory === c.id
+                              ? { borderColor: "var(--blue-light)", color: "var(--blue-light)", background: "rgba(77,166,255,0.1)" }
+                              : { borderColor: "var(--br)", color: "var(--dim)", background: "transparent" }}
+                          >{c.label}</button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => { setTeamCategory("other"); setTeamContext(""); }}
+                          className="text-[10px] font-bold uppercase tracking-wide px-3 py-1.5 rounded-full border transition-all"
+                          style={teamCategory === "other"
+                            ? { borderColor: "var(--blue-light)", color: "var(--blue-light)", background: "rgba(77,166,255,0.1)" }
+                            : { borderColor: "var(--br)", color: "var(--dim)", background: "transparent" }}
+                        >Custom</button>
                       </div>
-                      <textarea className="finput bg-[#0a0d14] h-20 text-xs" placeholder="Describe the team the candidate is joining." value={teamContext} onChange={e => setTeamContext(e.target.value)} />
+
+                      {/* Option cards */}
+                      {teamCategory !== "other" && (() => {
+                        const cat = TEAM_DYNAMIC_TEMPLATES.find(c => c.id === teamCategory);
+                        return cat ? (
+                          <div className="grid grid-cols-2 gap-2 mb-3">
+                            {cat.options.map(opt => {
+                              const sel = teamOption === opt.id;
+                              return (
+                                <motion.button
+                                  key={opt.id}
+                                  type="button"
+                                  onClick={() => { setTeamOption(opt.id); setTeamContext(opt.value); }}
+                                  whileTap={{ scale: 0.97 }}
+                                  className="text-left p-3 rounded-lg border text-[11px] font-semibold transition-all leading-snug"
+                                  style={sel
+                                    ? { borderColor: "var(--blue-light)", color: "var(--blue-light)", background: "rgba(77,166,255,0.08)" }
+                                    : { borderColor: "var(--br)", color: "var(--muted)", background: "rgba(17,21,32,0.5)" }}
+                                >
+                                  {sel && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--blue-light)] mr-1.5 mb-0.5" />}
+                                  {opt.label}
+                                </motion.button>
+                              );
+                            })}
+                          </div>
+                        ) : null;
+                      })()}
+
+                      {/* Selected preview / custom textarea */}
+                      <AnimatePresence mode="wait">
+                        <motion.textarea
+                          key={teamCategory + teamOption}
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="finput bg-[#0a0d14] text-xs"
+                          style={{ minHeight: 72, resize: "vertical" }}
+                          placeholder={teamCategory === "other" ? "Describe the existing team the candidate will join..." : ""}
+                          value={teamContext}
+                          onChange={e => setTeamContext(e.target.value)}
+                          readOnly={teamCategory !== "other" && teamOption !== "custom"}
+                        />
+                      </AnimatePresence>
                     </div>
                     <div className="mt-8">
                       <motion.button
