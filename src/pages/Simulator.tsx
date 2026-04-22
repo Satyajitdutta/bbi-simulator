@@ -7,7 +7,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { Check, ChevronRight, Mic, MicOff, Play, Square } from "lucide-react";
-import { COMP_LIBRARY, CAT_META, DNA_CATEGORIES, TEAM_DYNAMIC_TEMPLATES } from "../data/bbi_metadata";
+import { COMP_LIBRARY, CAT_META, DNA_CATEGORIES, TEAM_DYNAMIC_TEMPLATES, INDUSTRIES } from "../data/bbi_metadata";
+import CompIcon from "../components/CompIcon";
 
 /* ─── GEMINI API ──────────────────────────────────────────── */
 let aiInstance: GoogleGenAI | null = null;
@@ -283,6 +284,24 @@ export default function App() {
 
   const compList = Object.values(COMP_LIBRARY);
   const filteredList = catFilter === "all" ? compList : compList.filter(c => c.category === catFilter);
+
+  const filteredDNA = DNA_CATEGORIES.filter(c =>
+    c.industryTags.includes("all") ||
+    c.industryTags.some(tag => industry.toLowerCase().includes(tag.toLowerCase()))
+  );
+
+  // When industry changes, reset DNA selection to first valid category
+  useEffect(() => {
+    const valid = DNA_CATEGORIES.filter(c =>
+      c.industryTags.includes("all") ||
+      c.industryTags.some(tag => industry.toLowerCase().includes(tag.toLowerCase()))
+    );
+    if (valid.length > 0 && !valid.find(c => c.id === dnaCategory)) {
+      setDnaCategory(valid[0].id);
+      setDnaOption(valid[0].options[0].id);
+      setOrgDNA(valid[0].options[0].value);
+    }
+  }, [industry]);
 
   const handleSelect = (id: string) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -634,12 +653,7 @@ Return ONLY valid JSON with this schema:
                     <div className="fgrp">
                       <label className="flabel">Industry Sector</label>
                       <select className="finput bg-[#0a0d14]" value={industry} onChange={e => setIndustry(e.target.value)}>
-                        <option value="Technology / SaaS">Technology / SaaS</option>
-                        <option value="Healthcare & Life Sciences">Healthcare & Life Sciences</option>
-                        <option value="BFSI (Banking, Financial Services & Insurance)">BFSI (Banking, Financial Services & Insurance)</option>
-                        <option value="BPO & Customer Success">BPO & Customer Success</option>
-                        <option value="Retail & E-commerce">Retail & E-commerce</option>
-                        <option value="Manufacturing & Supply Chain">Manufacturing & Supply Chain</option>
+                        {INDUSTRIES.map(ind => <option key={ind} value={ind}>{ind}</option>)}
                       </select>
                     </div>
                     <div className="fgrp">
@@ -652,12 +666,12 @@ Return ONLY valid JSON with this schema:
                             const val = e.target.value;
                             setDnaCategory(val);
                             if (val === "other") { setOrgDNA(""); } else {
-                              const cat = DNA_CATEGORIES.find(c => c.id === val);
+                              const cat = filteredDNA.find(c => c.id === val);
                               if (cat) { setDnaOption(cat.options[0].id); setOrgDNA(cat.options[0].value); }
                             }
                           }}
                         >
-                          {DNA_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                          {filteredDNA.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                           <option value="other">Other / Custom</option>
                         </select>
                         {dnaCategory !== "other" && (
@@ -665,13 +679,13 @@ Return ONLY valid JSON with this schema:
                             className="finput bg-[#0a0d14] text-xs flex-1"
                             value={dnaOption}
                             onChange={e => {
-                              const opt = DNA_CATEGORIES.find(c => c.id === dnaCategory)?.options.find(o => o.id === e.target.value);
+                              const opt = filteredDNA.find(c => c.id === dnaCategory)?.options.find(o => o.id === e.target.value);
                               setDnaOption(e.target.value);
                               if (opt) setOrgDNA(opt.value);
                               if (e.target.value === "custom") setOrgDNA("");
                             }}
                           >
-                            {DNA_CATEGORIES.find(c => c.id === dnaCategory)?.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                            {filteredDNA.find(c => c.id === dnaCategory)?.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
                             <option value="custom">Custom Text...</option>
                           </select>
                         )}
@@ -735,6 +749,9 @@ Return ONLY valid JSON with this schema:
                     <button className={`cfbtn ${catFilter === "BFSI & FinTech" ? "fb" : ""}`} onClick={() => setCatFilter("BFSI & FinTech")}>BFSI</button>
                     <button className={`cfbtn ${catFilter === "Product & Engineering" ? "fc" : ""}`} onClick={() => setCatFilter("Product & Engineering")}>Prod/Eng</button>
                     <button className={`cfbtn ${catFilter === "BPO & Mid-to-Large Ent." ? "fd" : ""}`} onClick={() => setCatFilter("BPO & Mid-to-Large Ent.")}>Enterprise</button>
+                    <button className={`cfbtn ${catFilter === "Healthcare & Life Sciences" ? "fa" : ""}`} onClick={() => setCatFilter("Healthcare & Life Sciences")}>Healthcare</button>
+                    <button className={`cfbtn ${catFilter === "Sales & Commercial" ? "fb" : ""}`} onClick={() => setCatFilter("Sales & Commercial")}>Sales</button>
+                    <button className={`cfbtn ${catFilter === "Digital & Technology" ? "fc" : ""}`} onClick={() => setCatFilter("Digital & Technology")}>Digital</button>
                     <button className={`cfbtn ${catFilter === "Universal" ? "fd" : ""}`} onClick={() => setCatFilter("Universal")}>Universal</button>
                   </div>
                   <div className="ccount">Selected: <strong>{selectedIds.length}</strong> competencies</div>
@@ -754,7 +771,7 @@ Return ONLY valid JSON with this schema:
                           whileTap={{ scale: 0.97 }}
                         >
                           <div className="cc-top">
-                            <span className="cc-icon">{comp.icon}</span>
+                            <CompIcon iconName={comp.icon} category={comp.category} size={15} />
                             <span className="cc-name">{comp.label}</span>
                           </div>
                           <div className="mt-3 flex items-center justify-between">
