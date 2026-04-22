@@ -9,6 +9,7 @@ import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { Check, ChevronRight, Mic, MicOff, Play, Square } from "lucide-react";
 import { COMP_LIBRARY, CAT_META, DNA_CATEGORIES, TEAM_DYNAMIC_TEMPLATES, INDUSTRIES } from "../data/bbi_metadata";
 import CompIcon from "../components/CompIcon";
+import CustomSelect from "../components/CustomSelect";
 
 /* ─── GEMINI API ──────────────────────────────────────────── */
 let aiInstance: GoogleGenAI | null = null;
@@ -217,6 +218,103 @@ const reportSchema: Schema = {
   },
   required: ["overall_score", "overall_verdict", "executive_summary", "leadership_archetype", "character_dimensions", "top_strengths", "development_focus", "fit_signal", "fit_rationale", "interview_priorities"]
 };
+
+/* ─── COMPETENCY CARD ─────────────────────────────────────── */
+function CompCard({ comp, sel, meta, index, onSelect }: {
+  comp: any; sel: boolean; meta: any; index: number; onSelect: (id: string) => void;
+}) {
+  const [hovered, setHovered] = React.useState(false);
+  const snippet = comp.research ? comp.research.slice(0, 110) + "…" : "";
+  return (
+    <motion.div
+      className={`comp-card ${sel ? "sel" : ""}`}
+      onClick={() => onSelect(comp.id)}
+      onHoverStart={() => setHovered(true)}
+      onHoverEnd={() => setHovered(false)}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, delay: index * 0.025 }}
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.97 }}
+      style={{ cursor: "pointer" }}
+    >
+      <div className="cc-top">
+        <CompIcon iconName={comp.icon} category={comp.category} size={15} />
+        <span className="cc-name">{comp.label}</span>
+      </div>
+      <div className="mt-3 flex items-center justify-between">
+        <span className="cc-tag" style={{ backgroundColor: meta.bg, color: meta.accent }}>{comp.category}</span>
+        <span className="text-[9px] text-[var(--dim)] uppercase tracking-wide">BOS {comp.bos ? "5" : "–"}</span>
+      </div>
+
+      {/* Research reveal on hover */}
+      <AnimatePresence>
+        {hovered && snippet && (
+          <motion.div
+            initial={{ opacity: 0, height: 0, marginTop: 0 }}
+            animate={{ opacity: 1, height: "auto", marginTop: 10 }}
+            exit={{ opacity: 0, height: 0, marginTop: 0 }}
+            transition={{ duration: 0.2 }}
+            style={{ overflow: "hidden" }}
+          >
+            <div style={{
+              borderTop: `1px solid ${meta.accent}33`,
+              paddingTop: 8,
+              fontSize: 10,
+              color: "var(--dim)",
+              lineHeight: 1.5,
+            }}>{snippet}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {sel && (
+        <motion.div
+          className="cc-check"
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ type: "spring", stiffness: 400 }}
+        >
+          <Check size={12} strokeWidth={3} />
+        </motion.div>
+      )}
+    </motion.div>
+  );
+}
+
+/* ─── GLOW INPUT ──────────────────────────────────────────── */
+function GlowInput({ label, value, onChange, placeholder, accent = "var(--gold)" }: {
+  label: string; value: string; onChange: (v: string) => void;
+  placeholder?: string; accent?: string;
+}) {
+  const [focused, setFocused] = React.useState(false);
+  return (
+    <div className="fgrp">
+      <motion.label
+        className="flabel block"
+        animate={{ color: focused ? accent : "var(--dim)" }}
+        transition={{ duration: 0.15 }}
+      >{label}</motion.label>
+      <motion.div
+        animate={{
+          boxShadow: focused ? `0 0 0 3px rgba(201,149,58,0.12), 0 0 12px rgba(201,149,58,0.08)` : "0 0 0 0px transparent"
+        }}
+        transition={{ duration: 0.2 }}
+        style={{ borderRadius: 4 }}
+      >
+        <input
+          className="finput w-full"
+          placeholder={placeholder}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          style={{ borderColor: focused ? accent : undefined }}
+        />
+      </motion.div>
+    </div>
+  );
+}
 
 /* ─── WAVEFORM BARS ────────────────────────────────────────── */
 function WaveformBars() {
@@ -642,19 +740,11 @@ Return ONLY valid JSON with this schema:
                     <h3>Candidate Details</h3>
                   </div>
                   <div className="card-body">
+                    <GlowInput label="Candidate Name" value={candidateName} onChange={setCandidateName} placeholder="e.g. Jane Doe" />
+                    <GlowInput label="Role Assessed For" value={roleTitle} onChange={setRoleTitle} placeholder="e.g. Senior Director of Product" />
                     <div className="fgrp">
-                      <label className="flabel">Candidate Name</label>
-                      <input className="finput" placeholder="e.g. Jane Doe" value={candidateName} onChange={e => setCandidateName(e.target.value)} />
-                    </div>
-                    <div className="fgrp">
-                      <label className="flabel">Role Assessed For</label>
-                      <input className="finput" placeholder="e.g. Senior Director of Product" value={roleTitle} onChange={e => setRoleTitle(e.target.value)} />
-                    </div>
-                    <div className="fgrp">
-                      <label className="flabel">Industry Sector</label>
-                      <select className="finput bg-[#0a0d14]" value={industry} onChange={e => setIndustry(e.target.value)}>
-                        {INDUSTRIES.map(ind => <option key={ind} value={ind}>{ind}</option>)}
-                      </select>
+                      <motion.label className="flabel block">Industry Sector</motion.label>
+                      <CustomSelect value={industry} onChange={setIndustry} options={INDUSTRIES} placeholder="Select industry..." />
                     </div>
                     {/* ── DNA CARD PICKER (Layer 1) ── */}
                     <div className="fgrp">
@@ -837,40 +927,29 @@ Return ONLY valid JSON with this schema:
                     <button className={`cfbtn ${catFilter === "Digital & Technology" ? "fc" : ""}`} onClick={() => setCatFilter("Digital & Technology")}>Digital</button>
                     <button className={`cfbtn ${catFilter === "Universal" ? "fd" : ""}`} onClick={() => setCatFilter("Universal")}>Universal</button>
                   </div>
-                  <div className="ccount">Selected: <strong>{selectedIds.length}</strong> competencies</div>
+                  <div className="ccount flex items-center gap-3">
+                    <span>Selected:</span>
+                    <motion.strong
+                      key={selectedIds.length}
+                      initial={{ scale: 1.5, color: "var(--gold3)" }}
+                      animate={{ scale: 1, color: "var(--gold)" }}
+                      transition={{ type: "spring", stiffness: 400, damping: 15 }}
+                    >{selectedIds.length}</motion.strong>
+                    <span>competencies</span>
+                  </div>
                   <div className="g4">
                     {filteredList.map((comp, index) => {
                       const sel = selectedIds.includes(comp.id);
                       const meta = CAT_META[comp.category] || { bg: "", accent: "" };
                       return (
-                        <motion.div
+                        <CompCard
                           key={comp.id}
-                          className={`comp-card ${sel ? "sel" : ""}`}
-                          onClick={() => handleSelect(comp.id)}
-                          initial={{ opacity: 0, y: 12 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.25, delay: index * 0.03 }}
-                          whileHover={{ y: -2, borderColor: "rgba(201,149,58,0.5)" }}
-                          whileTap={{ scale: 0.97 }}
-                        >
-                          <div className="cc-top">
-                            <CompIcon iconName={comp.icon} category={comp.category} size={15} />
-                            <span className="cc-name">{comp.label}</span>
-                          </div>
-                          <div className="mt-3 flex items-center justify-between">
-                            <span className="cc-tag" style={{ backgroundColor: meta.bg, color: meta.accent }}>{comp.category}</span>
-                          </div>
-                          {sel && (
-                            <motion.div
-                              className="cc-check"
-                              initial={{ scale: 0 }}
-                              animate={{ scale: 1 }}
-                              transition={{ type: "spring", stiffness: 400 }}
-                            >
-                              <Check size={12} strokeWidth={3} />
-                            </motion.div>
-                          )}
-                        </motion.div>
+                          comp={comp}
+                          sel={sel}
+                          meta={meta}
+                          index={index}
+                          onSelect={handleSelect}
+                        />
                       );
                     })}
                   </div>
@@ -892,6 +971,69 @@ Return ONLY valid JSON with this schema:
                 <div>
                   <h1>Simulation in Progress</h1>
                   <p>Scenario {currentIdx + 1} of {selectedIds.length} — Assessing {COMP_LIBRARY[selectedIds[currentIdx]]?.label || "Competency"}</p>
+                </div>
+              </div>
+
+              {/* ── Step progress bar ── */}
+              <div className="mb-6">
+                <div className="flex items-center gap-1.5 mb-2">
+                  {selectedIds.map((id, i) => {
+                    const done = i < currentIdx;
+                    const active = i === currentIdx;
+                    const comp = COMP_LIBRARY[id];
+                    const meta = CAT_META[comp?.category] || { accent: "var(--gold)" };
+                    return (
+                      <motion.div
+                        key={id}
+                        title={comp?.label}
+                        className="relative flex-1 h-1.5 rounded-full overflow-hidden cursor-default"
+                        style={{ background: "var(--s3)" }}
+                      >
+                        {(done || active) && (
+                          <motion.div
+                            className="absolute inset-y-0 left-0 rounded-full"
+                            style={{ background: done ? "var(--green)" : meta.accent }}
+                            initial={{ width: 0 }}
+                            animate={{ width: done ? "100%" : active ? "60%" : "0%" }}
+                            transition={{ duration: 0.5, ease: "easeOut" }}
+                          />
+                        )}
+                        {active && (
+                          <motion.div
+                            className="absolute inset-y-0 right-0 w-4 rounded-full"
+                            style={{ background: `linear-gradient(to left, transparent, ${meta.accent}66)` }}
+                            animate={{ opacity: [0.4, 1, 0.4] }}
+                            transition={{ repeat: Infinity, duration: 1.4 }}
+                          />
+                        )}
+                      </motion.div>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center gap-2">
+                  {selectedIds.map((id, i) => {
+                    const done = scores[id] !== undefined;
+                    const active = i === currentIdx;
+                    const comp = COMP_LIBRARY[id];
+                    const meta = CAT_META[comp?.category] || { accent: "var(--gold)" };
+                    return (
+                      <motion.div
+                        key={id}
+                        className="flex-1 flex justify-center"
+                        initial={false}
+                      >
+                        <motion.div
+                          className="w-2 h-2 rounded-full"
+                          animate={{
+                            scale: active ? [1, 1.4, 1] : 1,
+                            background: done ? "var(--green)" : active ? meta.accent : "var(--s4)",
+                            boxShadow: active ? `0 0 8px ${meta.accent}88` : "none",
+                          }}
+                          transition={{ repeat: active ? Infinity : 0, duration: 1.2 }}
+                        />
+                      </motion.div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1077,7 +1219,7 @@ Return ONLY valid JSON with this schema:
 
                       <div className="card-hd bg-[var(--s2)] border-b border-[var(--br)] flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <span className="text-lg">{COMP_LIBRARY[selectedIds[currentIdx]]?.icon || "🌐"}</span>
+                          <CompIcon iconName={COMP_LIBRARY[selectedIds[currentIdx]]?.icon || "Globe2"} category={COMP_LIBRARY[selectedIds[currentIdx]]?.category || "Universal"} size={14} />
                           <h3 className="!text-[12px] !text-[var(--text)] !mb-0">{scenarios[selectedIds[currentIdx]].title}</h3>
                         </div>
                         <span className="text-[10px] bg-[var(--dim)]/30 px-2 py-1 rounded text-[var(--muted)] uppercase">Type: {scenarios[selectedIds[currentIdx]].type}</span>
