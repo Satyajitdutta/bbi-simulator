@@ -1,0 +1,6 @@
+{
+  "name": "BBI Simulator",
+  "description": "AI-Assisted Behavioral Assessment Tool generating unique interview scenarios using Gemini API.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": []
+}
