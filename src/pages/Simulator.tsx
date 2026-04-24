@@ -25,9 +25,12 @@ async function listGeminiModels(key: string): Promise<string[]> {
 }
 
 async function callGenAI(prompt: string, schema: any): Promise<any> {
-  const key = import.meta.env.VITE_GEMINI_API_KEY || "";
+  const key = import.meta.env.VITE_GEMINI_API_KEY
+    || (process.env as any).VITE_GEMINI_API_KEY
+    || (process.env as any).GEMINI_API_KEY
+    || "";
   if (!key || key === "MY_GEMINI_API_KEY") {
-    throw new Error("VITE_GEMINI_API_KEY is not set correctly in Vercel Environment Variables.");
+    throw new Error("Gemini API key not found. Set GEMINI_API_KEY in Vercel → Settings → Environment Variables.");
   }
 
   // Step 1: discover which models this key can actually use
