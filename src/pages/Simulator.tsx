@@ -22,20 +22,42 @@ const getAI = () => {
   return aiInstance;
 };
 
-async function callGenAI(prompt: string, schema: Schema) {
-  try {
-    const response = await getAI().models.generateContent({
-      model: "gemini-1.5-pro",
-      contents: prompt,
-      config: { responseMimeType: "application/json", responseSchema: schema, temperature: 0.7 }
-    });
-    const text = response.text;
-    if (!text) return null;
-    return JSON.parse(text);
-  } catch (error) {
-    console.error("GenAI Error:", error);
-    return null;
+async function callGenAI(prompt: string, schema: Schema): Promise<any> {
+  const key = import.meta.env.VITE_GEMINI_API_KEY || (process.env as any).GEMINI_API_KEY || "";
+  if (!key) {
+    const msg = "VITE_GEMINI_API_KEY is not set. Add it in Vercel → Settings → Environment Variables, then redeploy.";
+    console.error("[BBI] " + msg);
+    throw new Error(msg);
   }
+
+  // Try flash first (fastest + most available), fall back to pro
+  const models = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-1.5-pro"];
+  let lastError: any = null;
+
+  for (const model of models) {
+    try {
+      console.log(`[BBI] Trying model: ${model}`);
+      const response = await getAI().models.generateContent({
+        model,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: schema,
+          temperature: 0.7,
+        }
+      });
+      const text = response.text;
+      if (!text) { lastError = new Error(`${model} returned empty response`); continue; }
+      const parsed = JSON.parse(text);
+      console.log(`[BBI] Success with model: ${model}`);
+      return parsed;
+    } catch (err: any) {
+      console.warn(`[BBI] Model ${model} failed:`, err?.message || err);
+      lastError = err;
+    }
+  }
+
+  throw lastError ?? new Error("All Gemini models failed. Check API key permissions.");
 }
 
 /* ─── SARVAM AI ───────────────────────────────────────────── */
@@ -523,7 +545,9 @@ export default function App() {
         setScenarioError("Gemini API returned no data. Check that VITE_GEMINI_API_KEY is set in Vercel Environment Variables and redeploy.");
       }
     } catch (e: any) {
-      setScenarioError(`Scenario generation failed: ${e?.message || "Unknown error"}. Check your API key.`);
+      const msg = e?.message || String(e) || "Unknown error";
+      console.error("[BBI] fetchScenario error:", e);
+      setScenarioError(msg);
     }
     setIsGeneratingScenario(false);
   };
