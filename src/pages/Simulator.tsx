@@ -123,8 +123,8 @@ function buildTTSText(scenario: { scene_setter: string; cta: string }): string {
       .replace(/\s{2,}/g, " ")                 // collapse whitespace
       .trim();
 
-  const intro = clean(scenario.scene_setter).slice(0, 220);
-  const question = clean(scenario.cta).slice(0, 260);
+  const intro = clean(scenario.scene_setter).slice(0, 600);
+  const question = clean(scenario.cta).slice(0, 200);
   return `${intro}. ${question}`.replace(/\.\s*\./g, ".").trim();
 }
 
@@ -133,7 +133,7 @@ function buildTTSText(scenario: { scene_setter: string; cta: string }): string {
 // stays server-side and CORS is never an issue.
 async function fetchSarvamTTS(text: string): Promise<string | null> {
   try {
-    const clean = text.slice(0, 480);
+    const clean = text.slice(0, 1000);
     console.log("[BBI] Calling /api/speak, chars:", clean.length, "| preview:", clean.slice(0, 60));
     const res = await fetch("/api/speak", {
       method: "POST",

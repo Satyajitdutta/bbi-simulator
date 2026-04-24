@@ -31,7 +31,7 @@ export default async function handler(req, res) {
         'api-subscription-key': key,
       },
       body: JSON.stringify({
-        inputs: [text.slice(0, 500)],
+        inputs: [text.slice(0, 1000)],
         target_language_code: 'en-IN',
         speaker: 'meera',
         pitch: 0,
