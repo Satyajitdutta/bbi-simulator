@@ -1,5 +1,6 @@
-// Vercel serverless function — proxies Sarvam TTS so the API key stays server-side
-// Matches the same pattern used in JEVA (pithonix-ai-global/temp_jeva)
+// Vercel serverless — proxies Sarvam TTS server-side (key never exposed to browser)
+// Exact same pattern as JEVA (jeva-pithonix.vercel.app) which is confirmed working.
+// Only difference: key fallback includes VITE_SARVAM_KEY for this project's Vercel env.
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -8,53 +9,56 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  // Support multiple Vercel env var naming conventions
-  const key =
-    process.env.SARVAM_API_KEY ||
-    process.env.VITE_SARVAM_KEY ||
-    process.env.SARVAM_KEY ||
-    '';
-
-  if (!key) {
-    console.error('[BBI/speak] Sarvam key not set. Add VITE_SARVAM_KEY to Vercel environment variables.');
-    return res.status(500).json({ error: 'Sarvam API key not configured on server.' });
-  }
-
   try {
     const { text } = req.body;
-    if (!text) return res.status(400).json({ error: 'No text provided' });
+    if (!text) return res.status(400).json({ error: 'No text' });
+
+    const cleanText = text
+      .replace(/[*#_`•]/g, '')
+      .slice(0, 1000);
+
+    // JEVA uses SARVAM_API_KEY; BBI Vercel has VITE_SARVAM_KEY
+    const key = process.env.SARVAM_API_KEY || process.env.VITE_SARVAM_KEY || process.env.SARVAM_KEY || '';
+    if (!key) {
+      console.error('[BBI/speak] No Sarvam key found in env');
+      return res.status(500).json({ error: 'Sarvam API key not configured' });
+    }
+
+    console.log('[BBI/speak] key suffix:', key.slice(-4), '| text length:', cleanText.length);
 
     const response = await fetch('https://api.sarvam.ai/text-to-speech', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'api-subscription-key': key,
+        'api-subscription-key': key
       },
       body: JSON.stringify({
-        inputs: [text.slice(0, 1000)],
+        text: cleanText,
         target_language_code: 'en-IN',
-        speaker: 'anushka',
-        pitch: 0,
-        pace: 1.0,
-        loudness: 1.5,
-        speech_sample_rate: 22050,
-        enable_preprocessing: true,
-        model: 'bulbul:v2',
-      }),
+        speaker: 'ishita',
+        model: 'bulbul:v3',
+        pace: 0.9,
+        temperature: 0.4,
+        speech_sample_rate: 24000
+      })
     });
 
-    const data = await response.json();
-    if (!response.ok) {
-      console.error('[BBI/speak] Sarvam error:', response.status, data);
-      return res.status(response.status).json({ error: data });
-    }
+    const raw = await response.text();
+    console.log('[BBI/speak] Sarvam status:', response.status);
+
+    let data;
+    try { data = JSON.parse(raw); }
+    catch (e) { return res.status(500).json({ error: 'Bad JSON from Sarvam', raw }); }
+
+    if (!response.ok) return res.status(response.status).json({ error: data });
 
     const audio = data?.audios?.[0];
-    if (!audio) return res.status(500).json({ error: 'No audio in Sarvam response' });
+    if (!audio) return res.status(500).json({ error: 'No audio in response', data });
 
-    return res.status(200).json({ audio });
+    return res.status(200).json({ audio, format: 'wav' });
+
   } catch (err) {
-    console.error('[BBI/speak] Error:', err);
+    console.error('[BBI/speak] Error:', err.message);
     return res.status(500).json({ error: err.message });
   }
 }
