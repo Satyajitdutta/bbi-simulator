@@ -13,24 +13,54 @@ import CustomSelect from "../components/CustomSelect";
 
 /* ─── GEMINI REST API ─────────────────────────────────────── */
 
+async function listGeminiModels(key: string): Promise<string[]> {
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+    const json = await res.json();
+    if (!res.ok) return [];
+    return (json.models || [])
+      .filter((m: any) => m.supportedGenerationMethods?.includes("generateContent"))
+      .map((m: any) => (m.name as string).replace("models/", ""));
+  } catch { return []; }
+}
+
 async function callGenAI(prompt: string, schema: any): Promise<any> {
-  const key = import.meta.env.VITE_GEMINI_API_KEY || (process.env as any).GEMINI_API_KEY || "";
-  if (!key) {
-    throw new Error("VITE_GEMINI_API_KEY is not set. Add it in Vercel → Settings → Environment Variables and redeploy.");
+  const key = import.meta.env.VITE_GEMINI_API_KEY || "";
+  if (!key || key === "MY_GEMINI_API_KEY") {
+    throw new Error("VITE_GEMINI_API_KEY is not set correctly in Vercel Environment Variables.");
   }
 
-  // Direct REST API — no SDK version issues, full control over endpoint + model names
-  const MODELS = [
+  // Step 1: discover which models this key can actually use
+  console.log("[BBI] Discovering available models for this key...");
+  const available = await listGeminiModels(key);
+  console.log("[BBI] Available models:", available);
+
+  // Preferred order — pick first match found in the available list
+  const PREFERRED = [
     "gemini-2.0-flash",
     "gemini-2.0-flash-001",
     "gemini-2.0-flash-lite",
     "gemini-1.5-flash",
     "gemini-1.5-flash-001",
+    "gemini-1.5-pro",
+    "gemini-pro",
   ];
 
-  let lastErr = "";
+  // Use discovered models if available, else fall back to preferred list anyway
+  const toTry = available.length > 0
+    ? PREFERRED.filter(m => available.includes(m)).concat(available.filter(m => !PREFERRED.includes(m)))
+    : PREFERRED;
 
-  for (const model of MODELS) {
+  if (toTry.length === 0) {
+    throw new Error(
+      `No generateContent-capable models found for your API key.\n` +
+      `Discovered models: ${available.join(", ") || "none"}.\n` +
+      `Make sure your key is a Google AI Studio key (aistudio.google.com/apikey) — NOT a Vertex AI or Cloud key.`
+    );
+  }
+
+  let lastErr = "";
+  for (const model of toTry) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
     try {
       console.log(`[BBI] Trying ${model}...`);
@@ -48,26 +78,30 @@ async function callGenAI(prompt: string, schema: any): Promise<any> {
       });
 
       const json = await res.json();
-
       if (!res.ok) {
-        const msg = json?.error?.message || res.statusText;
-        console.warn(`[BBI] ${model} failed (${res.status}): ${msg}`);
-        lastErr = `${model}: ${json?.error?.message || res.statusText}`;
+        lastErr = `${model} (${res.status}): ${json?.error?.message || res.statusText}`;
+        console.warn(`[BBI] ✗ ${lastErr}`);
         continue;
       }
 
       const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!text) { lastErr = `${model}: empty response`; continue; }
 
-      console.log(`[BBI] ✓ Success with ${model}`);
+      console.log(`[BBI] ✓ ${model}`);
       return JSON.parse(text);
     } catch (e: any) {
       lastErr = `${model}: ${e?.message || e}`;
-      console.warn(`[BBI] ${model} threw:`, e);
+      console.warn(`[BBI]`, e);
     }
   }
 
-  throw new Error(`All models failed. Last error — ${lastErr}. Verify your Gemini API key at aistudio.google.com.`);
+  throw new Error(
+    `All models failed.\n` +
+    `Key ending: ...${key.slice(-6)}\n` +
+    `Models tried: ${toTry.join(", ")}\n` +
+    `Last error: ${lastErr}\n\n` +
+    `Get a fresh key at aistudio.google.com/apikey and update it in Vercel → Settings → Environment Variables.`
+  );
 }
 
 /* ─── SARVAM AI ───────────────────────────────────────────── */
