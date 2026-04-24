@@ -33,7 +33,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         inputs: [text.slice(0, 1000)],
         target_language_code: 'en-IN',
-        speaker: 'meera',
+        speaker: 'ritu',
         pitch: 0,
         pace: 1.0,
         loudness: 1.5,
