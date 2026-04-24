@@ -108,31 +108,49 @@ async function callGenAI(prompt: string, schema: any): Promise<any> {
 }
 
 /* ─── SARVAM AI ───────────────────────────────────────────── */
-const SARVAM_KEY = () => import.meta.env.VITE_SARVAM_KEY || "";
+const SARVAM_KEY = () =>
+  import.meta.env.VITE_SARVAM_KEY ||
+  (process.env as any).VITE_SARVAM_KEY ||
+  (process.env as any).SARVAM_KEY ||
+  "";
 
 async function fetchSarvamTTS(text: string): Promise<string | null> {
+  const key = SARVAM_KEY();
+  if (!key) {
+    console.warn("[BBI] Sarvam key not found — skipping TTS. Set VITE_SARVAM_KEY or SARVAM_KEY in Vercel environment variables.");
+    return null;
+  }
+  // Sarvam max is ~500 chars per request — trim if needed
+  const trimmed = text.length > 500 ? text.slice(0, 497) + "..." : text;
   try {
+    console.log("[BBI] Calling Sarvam TTS, key suffix:", key.slice(-4), "text length:", trimmed.length);
     const response = await fetch("https://api.sarvam.ai/text-to-speech", {
       method: "POST",
       headers: {
-        "api-subscription-key": SARVAM_KEY(),
+        "api-subscription-key": key,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        text,
+        inputs: [trimmed],
         target_language_code: "en-IN",
         speaker: "ritu",
-        model: "bulbul:v3"
+        model: "bulbul:v2",
+        enable_preprocessing: true,
+        pitch: 0,
+        pace: 1.0,
+        loudness: 1.5,
       })
     });
     if (!response.ok) {
-      console.error("Sarvam TTS Error:", response.status, await response.text());
+      const errText = await response.text();
+      console.error("[BBI] Sarvam TTS Error:", response.status, errText);
       return null;
     }
     const data = await response.json();
-    return data.audio_content || null;
+    // v2 API returns audios array; v1 returned audio_content
+    return (data.audios && data.audios[0]) || data.audio_content || null;
   } catch (e) {
-    console.error("Sarvam TTS Error:", e);
+    console.error("[BBI] Sarvam TTS Error:", e);
     return null;
   }
 }
@@ -412,6 +430,8 @@ export default function App() {
   const [candidateName, setCandidateName] = useState("");
   const [roleTitle, setRoleTitle] = useState("");
   const [industry, setIndustry] = useState("Technology / SaaS");
+  const [managerName, setManagerName] = useState("");
+  const [managerPhoto, setManagerPhoto] = useState<string>("");
   const [orgDNA, setOrgDNA] = useState(DNA_CATEGORIES[0].options[0].value);
   const [teamContext, setTeamContext] = useState(TEAM_DYNAMIC_TEMPLATES[0].options[0].value);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -825,6 +845,65 @@ Return ONLY valid JSON with this schema:
                   <div className="card-body">
                     <GlowInput label="Candidate Name" value={candidateName} onChange={setCandidateName} placeholder="e.g. Jane Doe" />
                     <GlowInput label="Role Assessed For" value={roleTitle} onChange={setRoleTitle} placeholder="e.g. Senior Director of Product" />
+
+                    {/* ── HIRING MANAGER PERSONALIZATION ── */}
+                    <div className="fgrp">
+                      <label className="flabel mt-1" style={{ color: "var(--muted)" }}>
+                        Hiring Manager <span className="text-[9px] opacity-50 normal-case font-normal ml-1">optional — personalizes the interview</span>
+                      </label>
+                      <div className="flex items-center gap-3">
+                        {/* Photo preview / upload */}
+                        <label className="cursor-pointer flex-shrink-0 group" title="Upload manager photo">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="sr-only"
+                            onChange={e => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              const reader = new FileReader();
+                              reader.onload = ev => setManagerPhoto(ev.target?.result as string);
+                              reader.readAsDataURL(file);
+                            }}
+                          />
+                          <div className="relative w-14 h-14 rounded-full overflow-hidden border-2 border-dashed border-[var(--br2)] group-hover:border-[var(--gold)] transition-colors duration-200">
+                            {managerPhoto ? (
+                              <img src={managerPhoto} alt="Manager" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex flex-col items-center justify-center bg-[var(--s2)]">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--dim)" strokeWidth="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                <span className="text-[8px] text-[var(--dim)] mt-0.5 group-hover:text-[var(--gold)] transition-colors">Photo</span>
+                              </div>
+                            )}
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-full">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                            </div>
+                          </div>
+                        </label>
+                        {/* Name field */}
+                        <div className="flex-1">
+                          <input
+                            type="text"
+                            className="finput text-[12px] w-full"
+                            placeholder="Manager name (e.g. Sarah Chen)"
+                            value={managerName}
+                            onChange={e => setManagerName(e.target.value)}
+                            style={{ background: "#0a0d14" }}
+                          />
+                          {managerPhoto && (
+                            <button
+                              type="button"
+                              onClick={() => { setManagerPhoto(""); }}
+                              className="text-[10px] text-[var(--dim)] hover:text-[var(--red)] mt-1.5 flex items-center gap-1 transition-colors"
+                            >
+                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                              Remove photo
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="fgrp">
                       <motion.label className="flabel block">Industry Sector</motion.label>
                       <CustomSelect value={industry} onChange={setIndustry} options={INDUSTRIES} placeholder="Select industry..." />
@@ -1184,156 +1263,79 @@ Return ONLY valid JSON with this schema:
                 </motion.div>
               ) : (
                 <motion.div
-                  className="g2r"
                   key={`scenario-${currentIdx}`}
                   initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.3 }}
+                  style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, alignItems: "start" }}
                 >
-                  {/* LEFT: Response */}
-                  <div className="card">
-                    <div className="card-hd bg-[var(--s2)] border-b border-[var(--br)]">
-                      <h3 className="!text-[14px] !text-[var(--text)] !mb-0 flex justify-between items-center">
-                        <span>Your Spoken Answer</span>
-                        <motion.button
-                          className={`btn btn-sm ${isRecording ? "btn-red-ghost" : "btn-ghost"}`}
-                          onClick={toggleRecording}
-                          disabled={isSpeakingManager || isSarvamProcessing}
-                          whileTap={{ scale: 0.95 }}
-                        >
-                          {isRecording ? <><Square size={12} /> Stop</> : <><Mic size={14} /> Speak</>}
-                        </motion.button>
-                      </h3>
-                      <p className="text-[10px] mt-1">Use the STAR method (Situation, Task, Action, Result)</p>
-                    </div>
-                    <div className="card-body">
-                      <div className="fgrp h-[200px]">
-                        <textarea
-                          className="finput w-full h-full resize-none bg-[var(--bg)] border border-[var(--br)] rounded p-4 text-sm leading-relaxed"
-                          placeholder={
-                            isSpeakingManager
-                              ? "Manager is briefing you..."
-                              : isRecording
-                              ? "Recording... speak your answer, then stop."
-                              : isSarvamProcessing
-                              ? "Transcribing..."
-                              : "Your transcribed answer will appear here. You may also type directly."
-                          }
-                          value={currentResponse.transcript}
-                          onChange={e => setCurrentResponse({ transcript: e.target.value })}
-                          disabled={isRecording || isSarvamProcessing}
-                        />
-                      </div>
+                  {/* ══ LEFT COLUMN: Manager + Answer ══ */}
+                  <div className="flex flex-col gap-4">
 
-                      {/* Voice status indicator */}
-                      <AnimatePresence>
-                        {(isRecording || isSpeakingManager || isSarvamProcessing) && (
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            exit={{ opacity: 0, height: 0 }}
-                            className="mt-2 overflow-hidden"
-                          >
-                            <div className="flex items-center gap-3 py-2">
-                              {isRecording && <WaveformBars />}
-                              {(isSpeakingManager || isSarvamProcessing) && (
-                                <motion.div
-                                  className="flex gap-1"
-                                  animate={{ opacity: [1, 0.4, 1] }}
-                                  transition={{ repeat: Infinity, duration: 1.2 }}
-                                >
-                                  {[0, 1, 2].map(i => (
-                                    <div key={i} className="w-1.5 h-1.5 rounded-full bg-[var(--gold)]" />
-                                  ))}
-                                </motion.div>
-                              )}
-                              <span className="text-xs text-[var(--muted)]">{recordingStatusText()}</span>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-
-                      <div className="flex gap-4 mt-6">
-                        <motion.button
-                          className="btn btn-ghost flex-1 justify-center"
-                          onClick={() => handleSubmitResponse(true)}
-                          whileTap={{ scale: 0.97 }}
-                        >Skip</motion.button>
-                        <motion.button
-                          className="btn btn-gold flex-[2] justify-center"
-                          onClick={() => handleSubmitResponse(false)}
-                          whileHover={{ scale: 1.01 }}
-                          whileTap={{ scale: 0.97 }}
-                        >Submit & Next <ChevronRight size={16} /></motion.button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* RIGHT: Manager + Scenario + Competency */}
-                  <div className="flex flex-col gap-5">
+                    {/* Hiring Manager Card */}
                     <div className="card">
-                      <div className="p-4 flex gap-4 items-center bg-[var(--bg)] border-b border-[var(--br)]">
-                        {/* Manager avatar */}
-                        <div className="relative">
+                      <div className="p-5 flex items-center gap-4 border-b border-[var(--br)]"
+                        style={{ background: "var(--s2)" }}>
+                        {/* Avatar */}
+                        <div className="relative flex-shrink-0">
                           {isSpeakingManager && (
                             <motion.div
-                              className="absolute inset-0 rounded-full border-2 border-[var(--gold)]"
-                              animate={{ scale: [1, 1.15, 1], opacity: [0.8, 0.2, 0.8] }}
+                              className="absolute rounded-full border-2 border-[var(--gold)]"
+                              style={{ inset: -4 }}
+                              animate={{ scale: [1, 1.12, 1], opacity: [0.8, 0.2, 0.8] }}
                               transition={{ repeat: Infinity, duration: 1.5 }}
                             />
                           )}
-                          <div className={`w-16 h-16 rounded-full overflow-hidden border-2 flex-shrink-0 transition-colors duration-500 ${isSpeakingManager ? "border-[var(--gold)] shadow-[0_0_15px_rgba(201,149,58,0.5)]" : "border-[var(--s3)]"}`}>
+                          <div className={`w-20 h-20 rounded-full overflow-hidden border-2 transition-colors duration-500 ${isSpeakingManager ? "border-[var(--gold)] shadow-[0_0_20px_rgba(201,149,58,0.5)]" : "border-[var(--s3)]"}`}>
                             <motion.img
-                              src="https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=400&q=80"
-                              alt="Manager Avatar"
+                              src={managerPhoto || "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=400&q=80"}
+                              alt={managerName || "Hiring Manager"}
                               className="w-full h-full object-cover origin-bottom"
                               animate={
                                 isSpeakingManager
                                   ? { y: [0, -2, 0, -1, 0], rotate: [-1, 1, -1], scale: [1.02, 1.05, 1.02] }
                                   : isRecording
-                                    ? { rotate: [0, -2, 0], y: [0, 1, 0], scale: [1, 1.02, 1] }
+                                    ? { rotate: [0, -2, 0], y: [0, 1, 0] }
                                     : { y: [0, -1, 0], scale: [1, 1.01, 1] }
                               }
-                              transition={{
-                                repeat: Infinity,
-                                duration: isSpeakingManager ? 2 : isRecording ? 4 : 6,
-                                ease: "easeInOut"
-                              }}
+                              transition={{ repeat: Infinity, duration: isSpeakingManager ? 2 : isRecording ? 4 : 6, ease: "easeInOut" }}
                             />
                           </div>
                         </div>
 
-                        <div>
-                          <h4 className="font-bold text-[13px] text-[var(--gold)]">Hiring Manager</h4>
+                        {/* Name + Status */}
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-[14px] text-[var(--gold)] mb-0.5">
+                            {managerName || "Hiring Manager"}
+                          </div>
+                          {managerName && (
+                            <div className="text-[10px] text-[var(--dim)] mb-1 tracking-wide uppercase">Hiring Manager</div>
+                          )}
                           <AnimatePresence mode="wait">
                             {isSpeakingManager ? (
-                              <motion.p
-                                key="speaking"
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                className="text-[11px] text-[var(--gold)] mt-1 animate-pulse"
-                              >Speaking...</motion.p>
+                              <motion.div key="spk" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                                className="flex items-center gap-2">
+                                <motion.div className="w-2 h-2 rounded-full bg-[var(--gold)]"
+                                  animate={{ scale: [1, 1.4, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} />
+                                <span className="text-[11px] text-[var(--gold)]">Speaking...</span>
+                              </motion.div>
                             ) : isRecording ? (
-                              <motion.p
-                                key="listening"
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                className="text-[11px] text-[var(--red)] mt-1"
-                              >Listening...</motion.p>
+                              <motion.div key="lst" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                                className="flex items-center gap-2">
+                                <motion.div className="w-2 h-2 rounded-full bg-[var(--red)]"
+                                  animate={{ scale: [1, 1.4, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} />
+                                <span className="text-[11px] text-[var(--red)]">Listening to you...</span>
+                              </motion.div>
                             ) : (
-                              <motion.p
-                                key="idle"
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                className="text-[11px] text-[var(--muted)] mt-1"
-                              >Standing by</motion.p>
+                              <motion.div key="idl" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                                className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-[var(--green)]" />
+                                <span className="text-[11px] text-[var(--muted)]">Standing by</span>
+                              </motion.div>
                             )}
                           </AnimatePresence>
                           <motion.button
-                            className="btn btn-sm btn-outline mt-2 h-7"
+                            className="btn btn-sm btn-outline mt-3"
                             onClick={() => {
                               const s = scenarios[selectedIds[currentIdx]];
                               if (s) playTTS(`${s.scene_setter}. ${s.trigger_content}. ${s.cta}`);
@@ -1341,39 +1343,189 @@ Return ONLY valid JSON with this schema:
                             disabled={isSpeakingManager}
                             whileTap={{ scale: 0.95 }}
                           >
-                            <Play size={10} className="mr-1" /> Replay
+                            <Play size={10} /> Replay Briefing
                           </motion.button>
                         </div>
 
-                        <div className="ml-auto w-24 h-24 bg-black rounded-lg overflow-hidden relative border border-[var(--s3)] shadow-inner">
+                        {/* Camera feed */}
+                        <div className="flex-shrink-0 w-28 h-28 bg-black rounded-xl overflow-hidden relative border border-[var(--s3)]">
                           <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform -scale-x-100" />
-                          <div className="absolute bottom-1 left-1 bg-black/60 px-1 rounded text-[8px] text-white">You</div>
+                          <div className="absolute bottom-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[8px] text-white tracking-wide">YOU</div>
+                          {isRecording && (
+                            <motion.div className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[var(--red)]"
+                              animate={{ opacity: [1, 0.2, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} />
+                          )}
                         </div>
                       </div>
 
-                      <div className="card-hd bg-[var(--s2)] border-b border-[var(--br)] flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <CompIcon iconName={COMP_LIBRARY[selectedIds[currentIdx]]?.icon || "Globe2"} category={COMP_LIBRARY[selectedIds[currentIdx]]?.category || "Universal"} size={14} />
-                          <h3 className="!text-[12px] !text-[var(--text)] !mb-0">{scenarios[selectedIds[currentIdx]].title}</h3>
+                      {/* Voice status bar */}
+                      <AnimatePresence>
+                        {(isRecording || isSpeakingManager || isSarvamProcessing) && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="overflow-hidden border-b border-[var(--br)]"
+                          >
+                            <div className="px-5 py-2 flex items-center gap-3"
+                              style={{ background: isRecording ? "rgba(232,85,85,0.06)" : "rgba(201,149,58,0.06)" }}>
+                              {isRecording && <WaveformBars />}
+                              {(isSpeakingManager || isSarvamProcessing) && (
+                                <motion.div className="flex gap-1"
+                                  animate={{ opacity: [1, 0.4, 1] }} transition={{ repeat: Infinity, duration: 1.2 }}>
+                                  {[0,1,2].map(i => <div key={i} className="w-1.5 h-1.5 rounded-full bg-[var(--gold)]" />)}
+                                </motion.div>
+                              )}
+                              <span className="text-xs text-[var(--muted)]">{recordingStatusText()}</span>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    {/* Answer Card */}
+                    <div className="card">
+                      <div className="card-hd border-b border-[var(--br)]" style={{ background: "var(--s2)" }}>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h3 className="!text-[13px] !text-[var(--text)] !mb-1">Your Spoken Answer</h3>
+                            <p className="text-[10px] text-[var(--dim)]">STAR method — Situation · Task · Action · Result</p>
+                          </div>
+                          <motion.button
+                            className={`btn btn-sm ${isRecording ? "btn-red-ghost" : "btn-ghost"}`}
+                            onClick={toggleRecording}
+                            disabled={isSpeakingManager || isSarvamProcessing}
+                            whileTap={{ scale: 0.95 }}
+                          >
+                            {isRecording ? <><Square size={12} /> Stop</> : <><Mic size={14} /> Speak</>}
+                          </motion.button>
                         </div>
-                        <span className="text-[10px] bg-[var(--dim)]/30 px-2 py-1 rounded text-[var(--muted)] uppercase">Type: {scenarios[selectedIds[currentIdx]].type}</span>
                       </div>
-                      <div className="card-body bg-[var(--s2)]">
-                        <p className="text-sm text-[var(--text)] italic mb-4">{scenarios[selectedIds[currentIdx]].scene_setter}</p>
-                        <div className="p-4 bg-[var(--s3)] border-l-4 border-[var(--gold)] rounded text-sm text-[var(--text)] leading-relaxed whitespace-pre-wrap mb-4">
+                      <div className="card-body flex flex-col gap-4">
+                        <textarea
+                          className="finput w-full resize-none bg-[var(--bg)] text-sm leading-relaxed"
+                          style={{ minHeight: 160 }}
+                          placeholder={
+                            isSpeakingManager ? "Manager is briefing you..."
+                            : isRecording ? "Recording... speak your answer."
+                            : isSarvamProcessing ? "Transcribing your response..."
+                            : "Your transcribed answer will appear here. You may also type directly."
+                          }
+                          value={currentResponse.transcript}
+                          onChange={e => setCurrentResponse({ transcript: e.target.value })}
+                          disabled={isRecording || isSarvamProcessing}
+                        />
+
+                        {/* STAR quick-ref */}
+                        <div className="grid grid-cols-4 gap-2">
+                          {[
+                            { l: "S", label: "Situation", tip: "Set the scene" },
+                            { l: "T", label: "Task", tip: "Your responsibility" },
+                            { l: "A", label: "Action", tip: "Steps you took" },
+                            { l: "R", label: "Result", tip: "Measurable outcome" },
+                          ].map(s => (
+                            <div key={s.l} className="rounded-lg p-2 text-center"
+                              style={{ background: "var(--s3)", border: "1px solid var(--br)" }}>
+                              <div className="text-[11px] font-bold text-[var(--gold)]">{s.l}</div>
+                              <div className="text-[10px] font-semibold text-[var(--text)] mt-0.5">{s.label}</div>
+                              <div className="text-[9px] text-[var(--dim)] mt-0.5">{s.tip}</div>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="flex gap-3">
+                          <motion.button className="btn btn-ghost flex-1 justify-center"
+                            onClick={() => handleSubmitResponse(true)} whileTap={{ scale: 0.97 }}>
+                            Skip
+                          </motion.button>
+                          <motion.button className="btn btn-gold flex-[2] justify-center"
+                            onClick={() => handleSubmitResponse(false)}
+                            whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.97 }}>
+                            Submit & Next <ChevronRight size={16} />
+                          </motion.button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ══ RIGHT COLUMN: Scenario + Competency ══ */}
+                  <div className="flex flex-col gap-4">
+
+                    {/* Scenario Card */}
+                    <div className="card">
+                      <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--br)]"
+                        style={{ background: "var(--bg)" }}>
+                        <div className="flex items-center gap-2">
+                          <CompIcon
+                            iconName={COMP_LIBRARY[selectedIds[currentIdx]]?.icon || "Globe2"}
+                            category={COMP_LIBRARY[selectedIds[currentIdx]]?.category || "Universal"}
+                            size={14}
+                          />
+                          <span className="text-[12px] font-bold text-[var(--text)]">
+                            {scenarios[selectedIds[currentIdx]].title}
+                          </span>
+                        </div>
+                        <span className="text-[9px] font-bold px-2 py-1 rounded uppercase tracking-wide"
+                          style={{ background: "var(--s3)", color: "var(--muted)", border: "1px solid var(--br)" }}>
+                          {scenarios[selectedIds[currentIdx]].type}
+                        </span>
+                      </div>
+                      <div className="card-body flex flex-col gap-4" style={{ background: "var(--s2)" }}>
+                        <p className="text-sm text-[var(--text)] italic leading-relaxed">
+                          {scenarios[selectedIds[currentIdx]].scene_setter}
+                        </p>
+                        <div className="rounded-lg p-4 text-sm text-[var(--text)] leading-relaxed whitespace-pre-wrap"
+                          style={{ background: "var(--s3)", borderLeft: "3px solid var(--gold)" }}>
                           {scenarios[selectedIds[currentIdx]].trigger_content}
                         </div>
-                        <p className="text-xs font-bold text-[var(--gold)] mb-2 uppercase tracking-wide">Prompt:</p>
-                        <div className="text-sm text-[var(--text)] mt-2">
-                          {scenarios[selectedIds[currentIdx]].cta}
+                        <div className="rounded-lg p-4"
+                          style={{ background: "rgba(201,149,58,0.06)", border: "1px solid rgba(201,149,58,0.2)" }}>
+                          <p className="text-[10px] font-bold text-[var(--gold)] uppercase tracking-widest mb-2">Your Prompt</p>
+                          <p className="text-sm text-[var(--text)] leading-relaxed">
+                            {scenarios[selectedIds[currentIdx]].cta}
+                          </p>
                         </div>
                       </div>
                     </div>
 
+                    {/* Competency + BOS Card */}
                     <div className="card">
-                      <div className="card-hd"><h3>Competency Focus</h3></div>
-                      <div className="card-body">
-                        <p className="text-sm text-[var(--muted)] leading-relaxed">{COMP_LIBRARY[selectedIds[currentIdx]].research}</p>
+                      <div className="card-hd border-b border-[var(--br)]">
+                        <div className="flex items-center gap-2">
+                          <CompIcon
+                            iconName={COMP_LIBRARY[selectedIds[currentIdx]]?.icon || "Globe2"}
+                            category={COMP_LIBRARY[selectedIds[currentIdx]]?.category || "Universal"}
+                            size={13}
+                          />
+                          <h3 className="!mb-0">Competency — {COMP_LIBRARY[selectedIds[currentIdx]]?.label}</h3>
+                        </div>
+                      </div>
+                      <div className="card-body flex flex-col gap-4">
+                        <p className="text-xs text-[var(--muted)] leading-relaxed">
+                          {COMP_LIBRARY[selectedIds[currentIdx]].research}
+                        </p>
+                        {/* BOS scale */}
+                        <div>
+                          <p className="text-[10px] font-bold text-[var(--dim)] uppercase tracking-widest mb-3">
+                            Behavioral Observation Scale
+                          </p>
+                          <div className="flex flex-col gap-1.5">
+                            {[5,4,3,2,1].map(score => {
+                              const bos = COMP_LIBRARY[selectedIds[currentIdx]]?.bos?.[score];
+                              if (!bos) return null;
+                              const color = score === 5 ? "var(--green)" : score === 4 ? "var(--gold)" : score === 3 ? "#4da6ff" : score === 2 ? "var(--amber)" : "var(--red)";
+                              return (
+                                <div key={score} className="flex gap-2 items-start">
+                                  <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold mt-0.5"
+                                    style={{ background: `${color}18`, color, border: `1px solid ${color}44` }}>
+                                    {score}
+                                  </div>
+                                  <p className="text-[10px] text-[var(--dim)] leading-relaxed">{bos}</p>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
