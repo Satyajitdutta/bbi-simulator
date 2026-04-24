@@ -107,16 +107,38 @@ async function callGenAI(prompt: string, schema: any): Promise<any> {
   );
 }
 
+/* ─── TTS TEXT BUILDER ────────────────────────────────────────────── */
+// Sarvam chokes on markdown, JSON blocks, backticks, and special symbols.
+// This builds a clean spoken-English briefing from a scenario object.
+// Only the scene_setter (context) + cta (question) are spoken —
+// trigger_content (often a JSON doc/table/email thread) is shown on screen, NOT spoken.
+function buildTTSText(scenario: { scene_setter: string; cta: string }): string {
+  const clean = (s: string) =>
+    s
+      .replace(/```[\s\S]*?```/g, "")          // strip fenced code blocks
+      .replace(/`[^`]*`/g, "")                 // strip inline code
+      .replace(/\*\*([^*]+)\*\*/g, "$1")       // bold → plain
+      .replace(/[*_#>|\[\]{}\\]/g, "")         // misc markdown chars
+      .replace(/https?:\/\/\S+/g, "")          // URLs
+      .replace(/\s{2,}/g, " ")                 // collapse whitespace
+      .trim();
+
+  const intro = clean(scenario.scene_setter).slice(0, 220);
+  const question = clean(scenario.cta).slice(0, 260);
+  return `${intro}. ${question}`.replace(/\.\s*\./g, ".").trim();
+}
+
 /* ─── SARVAM TTS via /api/speak (server-side proxy, JEVA pattern) ─── */
 // Calls the Vercel serverless function in /api/speak.js so the Sarvam key
 // stays server-side and CORS is never an issue.
 async function fetchSarvamTTS(text: string): Promise<string | null> {
   try {
-    console.log("[BBI] Calling /api/speak, text length:", text.length);
+    const clean = text.slice(0, 480);
+    console.log("[BBI] Calling /api/speak, chars:", clean.length, "| preview:", clean.slice(0, 60));
     const res = await fetch("/api/speak", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: text.slice(0, 500) }),
+      body: JSON.stringify({ text: clean }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -630,8 +652,7 @@ export default function App() {
       const scenario = scenarios[currentCompId];
       if (scenario && !isGeneratingScenario && !ttsAutoPlayedRef.current.has(currentCompId)) {
         ttsAutoPlayedRef.current.add(currentCompId);
-        const ttsText = `${scenario.scene_setter}. ${scenario.trigger_content}. ${scenario.cta}`;
-        playTTS(ttsText);
+        playTTS(buildTTSText(scenario));
       }
     }
   }, [phase, currentIdx, scenarios, isGeneratingScenario]);
@@ -1333,7 +1354,7 @@ Return ONLY valid JSON with this schema:
                             className="btn btn-sm btn-outline mt-3"
                             onClick={() => {
                               const s = scenarios[selectedIds[currentIdx]];
-                              if (s) playTTS(`${s.scene_setter}. ${s.trigger_content}. ${s.cta}`);
+                              if (s) playTTS(buildTTSText(s));
                             }}
                             disabled={isSpeakingManager}
                             whileTap={{ scale: 0.95 }}
