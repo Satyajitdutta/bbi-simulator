@@ -5,59 +5,69 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+// @google/genai SDK kept for type compatibility only — API calls use direct REST fetch
 import { Check, ChevronRight, Mic, MicOff, Play, Square } from "lucide-react";
 import { COMP_LIBRARY, CAT_META, DNA_CATEGORIES, TEAM_DYNAMIC_TEMPLATES, INDUSTRIES } from "../data/bbi_metadata";
 import CompIcon from "../components/CompIcon";
 import CustomSelect from "../components/CustomSelect";
 
-/* ─── GEMINI API ──────────────────────────────────────────── */
-let aiInstance: GoogleGenAI | null = null;
-const getAI = () => {
-  if (!aiInstance) {
-    const key = import.meta.env.VITE_GEMINI_API_KEY || (process.env as any).GEMINI_API_KEY;
-    if (!key) console.warn("GEMINI_API_KEY missing. AI features will fail.");
-    aiInstance = new GoogleGenAI({ apiKey: key || "" });
-  }
-  return aiInstance;
-};
+/* ─── GEMINI REST API ─────────────────────────────────────── */
 
-async function callGenAI(prompt: string, schema: Schema): Promise<any> {
+async function callGenAI(prompt: string, schema: any): Promise<any> {
   const key = import.meta.env.VITE_GEMINI_API_KEY || (process.env as any).GEMINI_API_KEY || "";
   if (!key) {
-    const msg = "VITE_GEMINI_API_KEY is not set. Add it in Vercel → Settings → Environment Variables, then redeploy.";
-    console.error("[BBI] " + msg);
-    throw new Error(msg);
+    throw new Error("VITE_GEMINI_API_KEY is not set. Add it in Vercel → Settings → Environment Variables and redeploy.");
   }
 
-  // Try flash first (fastest + most available), fall back to pro
-  const models = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-1.5-pro"];
-  let lastError: any = null;
+  // Direct REST API — no SDK version issues, full control over endpoint + model names
+  const MODELS = [
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-001",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-001",
+  ];
 
-  for (const model of models) {
+  let lastErr = "";
+
+  for (const model of MODELS) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
     try {
-      console.log(`[BBI] Trying model: ${model}`);
-      const response = await getAI().models.generateContent({
-        model,
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: schema,
-          temperature: 0.7,
-        }
+      console.log(`[BBI] Trying ${model}...`);
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema: schema,
+            temperature: 0.7,
+          },
+        }),
       });
-      const text = response.text;
-      if (!text) { lastError = new Error(`${model} returned empty response`); continue; }
-      const parsed = JSON.parse(text);
-      console.log(`[BBI] Success with model: ${model}`);
-      return parsed;
-    } catch (err: any) {
-      console.warn(`[BBI] Model ${model} failed:`, err?.message || err);
-      lastError = err;
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        const msg = json?.error?.message || res.statusText;
+        console.warn(`[BBI] ${model} failed (${res.status}): ${msg}`);
+        lastErr = `${model}: ${json?.error?.message || res.statusText}`;
+        continue;
+      }
+
+      const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) { lastErr = `${model}: empty response`; continue; }
+
+      console.log(`[BBI] ✓ Success with ${model}`);
+      return JSON.parse(text);
+    } catch (e: any) {
+      lastErr = `${model}: ${e?.message || e}`;
+      console.warn(`[BBI] ${model} threw:`, e);
     }
   }
 
-  throw lastError ?? new Error("All Gemini models failed. Check API key permissions.");
+  throw new Error(`All models failed. Last error — ${lastErr}. Verify your Gemini API key at aistudio.google.com.`);
 }
 
 /* ─── SARVAM AI ───────────────────────────────────────────── */
@@ -173,72 +183,72 @@ ${teamContext ? `EXISTING TEAM DYNAMIC (For Layer 4 Composition Fit Analysis): $
 Based on the patterns across all responses, generate a rich character mapping profile. Be direct and evidence-based. ${teamContext ? "Include a strict analysis on whether their demonstrated behaviors act as a synergistic addition or a disruptive risk to the existing team dynamic." : ""}`;
 }
 
-/* ─── SCHEMAS ─────────────────────────────────────────────── */
-const scenarioSchema: Schema = {
-  type: Type.OBJECT,
+/* ─── SCHEMAS (plain JSON Schema — no SDK types needed) ───── */
+const scenarioSchema = {
+  type: "object",
   properties: {
-    title: { type: Type.STRING },
-    type: { type: Type.STRING },
-    scene_setter: { type: Type.STRING },
-    trigger_content: { type: Type.STRING },
-    cta: { type: Type.STRING },
+    title:           { type: "string" },
+    type:            { type: "string" },
+    scene_setter:    { type: "string" },
+    trigger_content: { type: "string" },
+    cta:             { type: "string" },
   },
   required: ["title", "type", "scene_setter", "trigger_content", "cta"],
 };
 
-const scoringSchema: Schema = {
-  type: Type.OBJECT,
+const scoringSchema = {
+  type: "object",
   properties: {
-    score: { type: Type.NUMBER },
-    score_label: { type: Type.STRING },
-    bos_match: { type: Type.STRING },
+    score:         { type: "number" },
+    score_label:   { type: "string" },
+    bos_match:     { type: "string" },
     star_completeness: {
-      type: Type.OBJECT,
+      type: "object",
       properties: {
-        situation: { type: Type.BOOLEAN },
-        task: { type: Type.BOOLEAN },
-        action: { type: Type.BOOLEAN },
-        result: { type: Type.BOOLEAN },
+        situation: { type: "boolean" },
+        task:      { type: "boolean" },
+        action:    { type: "boolean" },
+        result:    { type: "boolean" },
       }
     },
-    evidence: { type: Type.ARRAY, items: { type: Type.STRING } },
-    gaps: { type: Type.ARRAY, items: { type: Type.STRING } },
-    probe_questions: { type: Type.ARRAY, items: { type: Type.STRING } },
-    reasoning: { type: Type.STRING },
+    evidence:        { type: "array", items: { type: "string" } },
+    gaps:            { type: "array", items: { type: "string" } },
+    probe_questions: { type: "array", items: { type: "string" } },
+    reasoning:       { type: "string" },
   },
   required: ["score", "score_label", "bos_match", "star_completeness", "evidence", "gaps", "probe_questions", "reasoning"],
 };
 
-const reportSchema: Schema = {
-  type: Type.OBJECT,
+const reportSchema = {
+  type: "object",
   properties: {
-    overall_score: { type: Type.NUMBER },
-    overall_verdict: { type: Type.STRING },
-    executive_summary: { type: Type.STRING },
+    overall_score:    { type: "number" },
+    overall_verdict:  { type: "string" },
+    executive_summary:{ type: "string" },
     leadership_archetype: {
-      type: Type.OBJECT,
-      properties: { name: { type: Type.STRING }, description: { type: Type.STRING } }
+      type: "object",
+      properties: { name: { type: "string" }, description: { type: "string" } }
     },
     character_dimensions: {
-      type: Type.ARRAY,
+      type: "array",
       items: {
-        type: Type.OBJECT,
+        type: "object",
         properties: {
-          dimension: { type: Type.STRING },
-          trait: { type: Type.STRING },
-          score: { type: Type.NUMBER },
-          description: { type: Type.STRING }
+          dimension:   { type: "string" },
+          trait:       { type: "string" },
+          score:       { type: "number" },
+          description: { type: "string" },
         }
       }
     },
-    top_strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
-    development_focus: { type: Type.ARRAY, items: { type: Type.STRING } },
-    fit_signal: { type: Type.STRING },
-    fit_rationale: { type: Type.STRING },
-    interview_priorities: { type: Type.ARRAY, items: { type: Type.STRING } },
-    skipped_competencies_note: { type: Type.STRING }
+    top_strengths:       { type: "array", items: { type: "string" } },
+    development_focus:   { type: "array", items: { type: "string" } },
+    fit_signal:          { type: "string" },
+    fit_rationale:       { type: "string" },
+    interview_priorities:{ type: "array", items: { type: "string" } },
+    skipped_competencies_note: { type: "string" },
   },
-  required: ["overall_score", "overall_verdict", "executive_summary", "leadership_archetype", "character_dimensions", "top_strengths", "development_focus", "fit_signal", "fit_rationale", "interview_priorities"]
+  required: ["overall_score", "overall_verdict", "executive_summary", "leadership_archetype", "character_dimensions", "top_strengths", "development_focus", "fit_signal", "fit_rationale", "interview_priorities"],
 };
 
 /* ─── COMPETENCY CARD ─────────────────────────────────────── */
