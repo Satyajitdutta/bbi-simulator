@@ -354,6 +354,7 @@ export default function App() {
   const [scores, setScores] = useState<Record<string, any>>({});
   const [currentResponse, setCurrentResponse] = useState({ transcript: "" });
   const [isGeneratingScenario, setIsGeneratingScenario] = useState(false);
+  const [scenarioError, setScenarioError] = useState<string | null>(null);
   const [fetchingScoreId, setFetchingScoreId] = useState<string | null>(null);
 
   // Voice State
@@ -501,6 +502,7 @@ export default function App() {
   /* ─── SCENARIO FETCH ──────────────────────────────────────── */
   const fetchScenario = async (compId: string) => {
     setIsGeneratingScenario(true);
+    setScenarioError(null);
     const comp = COMP_LIBRARY[compId];
     let previousContext = "";
     const answeredIds = selectedIds.slice(0, currentIdx);
@@ -513,19 +515,27 @@ export default function App() {
           : `In '${_comp.label}', candidate skipped/no-score.`;
       }).join("\n");
     }
-    const data = await callGenAI(scenarioPrompt(comp, roleTitle, industry, orgDNA, previousContext), scenarioSchema);
-    if (data) setScenarios(prev => ({ ...prev, [compId]: data }));
+    try {
+      const data = await callGenAI(scenarioPrompt(comp, roleTitle, industry, orgDNA, previousContext), scenarioSchema);
+      if (data) {
+        setScenarios(prev => ({ ...prev, [compId]: data }));
+      } else {
+        setScenarioError("Gemini API returned no data. Check that VITE_GEMINI_API_KEY is set in Vercel Environment Variables and redeploy.");
+      }
+    } catch (e: any) {
+      setScenarioError(`Scenario generation failed: ${e?.message || "Unknown error"}. Check your API key.`);
+    }
     setIsGeneratingScenario(false);
   };
 
   useEffect(() => {
     if (phase === "INTERVIEW") {
       const currentCompId = selectedIds[currentIdx];
-      if (!scenarios[currentCompId] && !isGeneratingScenario) {
+      if (!scenarios[currentCompId] && !isGeneratingScenario && !scenarioError) {
         fetchScenario(currentCompId);
       }
     }
-  }, [phase, currentIdx, selectedIds]);
+  }, [phase, currentIdx, selectedIds, scenarioError]);
 
   // Auto-play TTS when scenario is ready
   useEffect(() => {
@@ -564,6 +574,7 @@ export default function App() {
     if (currentIdx < selectedIds.length - 1) {
       setCurrentIdx(i => i + 1);
       setCurrentResponse({ transcript: "" });
+      setScenarioError(null);
     } else {
       setPhase("REPORT_LOADING");
     }
@@ -664,6 +675,7 @@ Return ONLY valid JSON with this schema:
     setScores({});
     setReport(null);
     setCurrentResponse({ transcript: "" });
+    setScenarioError(null);
   };
 
   // Camera
@@ -1037,15 +1049,66 @@ Return ONLY valid JSON with this schema:
                 </div>
               </div>
 
-              {isGeneratingScenario || !scenarios[selectedIds[currentIdx]] ? (
+              {scenarioError ? (
+                <motion.div className="card" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                  <div className="loading-wrap gap-4">
+                    <motion.div
+                      className="w-14 h-14 rounded-full flex items-center justify-center border-2 border-[var(--red)] bg-[rgba(232,85,85,0.08)]"
+                      animate={{ scale: [1, 1.05, 1] }}
+                      transition={{ repeat: Infinity, duration: 2 }}
+                    >
+                      <span className="text-[var(--red)] text-2xl font-bold">!</span>
+                    </motion.div>
+                    <p className="text-[var(--red)] font-semibold text-sm text-center max-w-[480px]">Scenario generation failed</p>
+                    <p className="text-[var(--muted)] text-xs text-center max-w-[480px] leading-relaxed">{scenarioError}</p>
+                    <div className="flex gap-3 mt-2">
+                      <motion.button
+                        className="btn btn-gold"
+                        onClick={() => { setScenarioError(null); fetchScenario(selectedIds[currentIdx]); }}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.97 }}
+                      >Retry</motion.button>
+                      <motion.button
+                        className="btn btn-ghost"
+                        onClick={restartSimulation}
+                        whileTap={{ scale: 0.97 }}
+                      >Back to Setup</motion.button>
+                    </div>
+                  </div>
+                </motion.div>
+              ) : isGeneratingScenario || !scenarios[selectedIds[currentIdx]] ? (
                 <motion.div
                   className="card"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                 >
-                  <div className="loading-wrap">
-                    <div className="spinner"></div>
-                    <p className="mt-4 text-[var(--muted)]">Generating immersive scenario...</p>
+                  <div className="loading-wrap gap-5">
+                    <div style={{ position: "relative", width: 56, height: 56 }}>
+                      <motion.div
+                        style={{
+                          position: "absolute", inset: 0, borderRadius: "50%",
+                          border: "3px solid var(--s3)", borderTopColor: "var(--gold)"
+                        }}
+                        animate={{ rotate: 360 }}
+                        transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                      />
+                      <motion.div
+                        style={{
+                          position: "absolute", inset: 6, borderRadius: "50%",
+                          border: "2px solid transparent", borderTopColor: "var(--gold3)", opacity: 0.5
+                        }}
+                        animate={{ rotate: -360 }}
+                        transition={{ repeat: Infinity, duration: 1.4, ease: "linear" }}
+                      />
+                    </div>
+                    <div className="text-center">
+                      <motion.p
+                        className="text-[var(--gold)] font-semibold text-sm"
+                        animate={{ opacity: [1, 0.5, 1] }}
+                        transition={{ repeat: Infinity, duration: 1.8 }}
+                      >Generating immersive scenario...</motion.p>
+                      <p className="text-[var(--dim)] text-xs mt-1">Crafting a {COMP_LIBRARY[selectedIds[currentIdx]]?.short || ""} scenario for {industry}</p>
+                    </div>
                   </div>
                 </motion.div>
               ) : (
