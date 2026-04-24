@@ -107,50 +107,29 @@ async function callGenAI(prompt: string, schema: any): Promise<any> {
   );
 }
 
-/* ─── SARVAM AI ───────────────────────────────────────────── */
-const SARVAM_KEY = () =>
-  import.meta.env.VITE_SARVAM_KEY ||
-  (process.env as any).VITE_SARVAM_KEY ||
-  (process.env as any).SARVAM_KEY ||
-  "";
-
+/* ─── SARVAM TTS via /api/speak (server-side proxy, JEVA pattern) ─── */
+// Calls the Vercel serverless function in /api/speak.js so the Sarvam key
+// stays server-side and CORS is never an issue.
 async function fetchSarvamTTS(text: string): Promise<string | null> {
-  const key = SARVAM_KEY();
-  if (!key) {
-    console.warn("[BBI] Sarvam key not found — skipping TTS. Set VITE_SARVAM_KEY or SARVAM_KEY in Vercel environment variables.");
-    return null;
-  }
-  // Sarvam max is ~500 chars per request — trim if needed
-  const trimmed = text.length > 500 ? text.slice(0, 497) + "..." : text;
   try {
-    console.log("[BBI] Calling Sarvam TTS, key suffix:", key.slice(-4), "text length:", trimmed.length);
-    const response = await fetch("https://api.sarvam.ai/text-to-speech", {
+    console.log("[BBI] Calling /api/speak, text length:", text.length);
+    const res = await fetch("/api/speak", {
       method: "POST",
-      headers: {
-        "api-subscription-key": key,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        inputs: [trimmed],
-        target_language_code: "en-IN",
-        speaker: "ritu",
-        model: "bulbul:v2",
-        enable_preprocessing: true,
-        pitch: 0,
-        pace: 1.0,
-        loudness: 1.5,
-      })
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text.slice(0, 500) }),
     });
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("[BBI] Sarvam TTS Error:", response.status, errText);
+    const data = await res.json();
+    if (!res.ok) {
+      console.error("[BBI] /api/speak error:", res.status, data);
       return null;
     }
-    const data = await response.json();
-    // v2 API returns audios array; v1 returned audio_content
-    return (data.audios && data.audios[0]) || data.audio_content || null;
+    if (!data.audio) {
+      console.error("[BBI] /api/speak: no audio in response", data);
+      return null;
+    }
+    return data.audio as string; // base64 string
   } catch (e) {
-    console.error("[BBI] Sarvam TTS Error:", e);
+    console.error("[BBI] /api/speak fetch error:", e);
     return null;
   }
 }
@@ -501,36 +480,52 @@ export default function App() {
     setCurrentIdx(0);
   };
 
-  /* ─── SARVAM TTS ──────────────────────────────────────────── */
+  /* ─── SARVAM TTS (JEVA pattern: Blob → ObjectURL) ─────────── */
   const playTTS = async (text: string) => {
     if (isSpeakingManager) return;
     setIsSpeakingManager(true);
-    const base64 = await fetchSarvamTTS(text);
-    if (!base64) {
-      setIsSpeakingManager(false);
-      return;
-    }
+
     // Stop any prior audio
     if (audioPlayerRef.current) {
       audioPlayerRef.current.pause();
       audioPlayerRef.current = null;
     }
-    const audio = new Audio("data:audio/wav;base64," + base64);
+
+    const base64 = await fetchSarvamTTS(text);
+    if (!base64) {
+      setIsSpeakingManager(false);
+      return;
+    }
+
+    // Decode base64 → Blob → ObjectURL (JEVA pattern — avoids Safari issues with data: URIs)
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], { type: "audio/wav" });
+    const url = URL.createObjectURL(blob);
+
+    const audio = new Audio(url);
     audioPlayerRef.current = audio;
+
     audio.onended = () => {
       setIsSpeakingManager(false);
       audioPlayerRef.current = null;
+      URL.revokeObjectURL(url);
       // Auto-start recording after manager finishes speaking
       startRecording();
     };
-    audio.onerror = () => {
+    audio.onerror = (e) => {
+      console.error("[BBI] Audio play error:", e);
       setIsSpeakingManager(false);
       audioPlayerRef.current = null;
+      URL.revokeObjectURL(url);
     };
+
     audio.play().catch(e => {
-      console.error("Audio play error:", e);
+      console.error("[BBI] audio.play() rejected:", e);
       setIsSpeakingManager(false);
       audioPlayerRef.current = null;
+      URL.revokeObjectURL(url);
     });
   };
 
