@@ -460,16 +460,46 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
       const id = selectedIds[currentIdx];
       const payload: any = skip ? { transcript: "" } : { ...currentResponse };
       setFetchingScoreId(id);
-      if (!skip && payload.transcript) callGenAI(securityAnalysisPrompt(payload.transcript), securitySchema).then(s => setResponses(p => ({ ...p, [id]: { ...p[id], security: s } })));
-      if (!skip && payload.videoBlob) uploadToSupabase(payload.videoBlob, `recordings/${id}_${Date.now()}.webm`).then(u => setResponses(p => ({ ...p, [id]: { ...p[id], videoUrl: u } })));
+
+      // --- CRITICAL TASKS (Await these to ensure they are saved) ---
+      // 1. Security Analysis
+      if (!skip && payload.transcript) {
+        try {
+          const s = await callGenAI(securityAnalysisPrompt(payload.transcript), securitySchema);
+          payload.security = s;
+        } catch (e) { console.error("Security analysis failed:", e); }
+      }
+
+      // 2. Video Upload
+      if (!skip && payload.videoBlob) {
+        try {
+          const path = `recordings/${id}_${Date.now()}.webm`;
+          const u = await uploadToSupabase(payload.videoBlob, path);
+          if (u) {
+            payload.videoUrl = u;
+          }
+        } catch (e) { console.error("Video upload failed:", e); }
+      }
+
+      // Update state and move to scoring
       setResponses(p => ({ ...p, [id]: payload }));
-      const sc = await callGenAI(scoringPrompt(COMP_LIBRARY[id], scenarios[id], payload, orgDNA), scoringSchema);
-      setScores(p => ({ ...p, [id]: sc }));
+
+      // 3. Scoring
+      try {
+        const sc = await callGenAI(scoringPrompt(COMP_LIBRARY[id], scenarios[id], payload, orgDNA), scoringSchema);
+        setScores(p => ({ ...p, [id]: sc }));
+      } catch (e) {
+        console.error("Scoring failed:", e);
+        setScores(p => ({ ...p, [id]: { score: 1, reasoning: "Evaluation failed due to technical error." } }));
+      }
+      
       setFetchingScoreId(null);
       if (currentIdx < selectedIds.length - 1) {
         setCurrentIdx(i => i + 1);
         setCurrentResponse({ transcript: "" });
-      } else setPhase("REPORT_LOADING");
+      } else {
+        setPhase("REPORT_LOADING");
+      }
     } finally { setIsSubmitting(false); }
   };
 
