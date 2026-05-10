@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from "react";
+import { useParams } from "react-router-dom";
 import { AnimatePresence, motion } from "motion/react";
 // @google/genai SDK kept for type compatibility only — API calls use direct REST fetch
 import { Check, ChevronRight, Mic, MicOff, Play, Square } from "lucide-react";
