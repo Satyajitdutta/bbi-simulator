@@ -1723,17 +1723,37 @@ Return ONLY valid JSON with this schema:
                               </motion.div>
                             )}
                           </AnimatePresence>
-                          <motion.button
-                            className="btn btn-sm btn-outline mt-3"
-                            onClick={() => {
-                              const s = scenarios[selectedIds[currentIdx]];
-                              if (s) playTTS(buildTTSText(s));
-                            }}
-                            disabled={isSpeakingManager}
-                            whileTap={{ scale: 0.95 }}
-                          >
-                            <Play size={10} /> Replay Briefing
-                          </motion.button>
+                          <div className="flex items-center gap-2 mt-3">
+                            <motion.button
+                              className="btn btn-sm btn-outline"
+                              onClick={() => {
+                                const s = scenarios[selectedIds[currentIdx]];
+                                if (s) playTTS(buildTTSText(s));
+                              }}
+                              disabled={isSpeakingManager}
+                              whileTap={{ scale: 0.95 }}
+                            >
+                              <Play size={10} /> Replay Briefing
+                            </motion.button>
+
+                            {isSpeakingManager && (
+                              <motion.button
+                                className="btn btn-sm btn-red-ghost"
+                                onClick={() => {
+                                  if (audioPlayerRef.current) {
+                                    audioPlayerRef.current.pause();
+                                    audioPlayerRef.current = null;
+                                  }
+                                  setIsSpeakingManager(false);
+                                }}
+                                initial={{ opacity: 0, x: -10 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                whileTap={{ scale: 0.95 }}
+                              >
+                                <MicOff size={10} /> Stop Speaking
+                              </motion.button>
+                            )}
+                          </div>
                         </div>
 
                         {/* Camera feed */}
