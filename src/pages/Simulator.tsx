@@ -971,6 +971,17 @@ Return ONLY valid JSON with this schema:
           created_at: new Date().toISOString()
         });
         if (error) { console.error("Supabase insert error:", error); savedId = null; }
+
+        // Update the assessment record as completed
+        if (isCandidateView && token && savedId) {
+          await supabase
+            .from('bbi_assessments')
+            .update({ 
+              status: 'completed', 
+              report_id: savedId 
+            })
+            .eq('token', token);
+        }
       }
     } catch (err) {
       console.error("Supabase saving failed:", err);
@@ -1806,11 +1817,29 @@ Return ONLY valid JSON with this schema:
               exit={{ opacity: 0 }}
               transition={{ duration: 0.4, ease: "easeOut" }}
             >
-              <div className="sh flex justify-between items-end">
-                <div>
-                  <h1>Behavioral Character Profile</h1>
-                  <p>{candidateName} — Assessed for {roleTitle}</p>
+              {isCandidateView ? (
+                <div className="card my-12 py-24 text-center">
+                  <motion.div
+                    className="w-20 h-20 rounded-full bg-[var(--green)]/10 text-[var(--green)] flex items-center justify-center mx-auto mb-6 border border-[var(--green)]/20"
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: "spring", stiffness: 200, delay: 0.2 }}
+                  >
+                    <Check size={40} strokeWidth={3} />
+                  </motion.div>
+                  <h1 className="text-2xl font-bold mb-4">Assessment Completed</h1>
+                  <p className="text-[var(--muted)] text-sm max-w-md mx-auto leading-relaxed">
+                    Thank you, {candidateName}. Your behavioral simulation is complete and has been submitted to the hiring team for review. You may now close this window.
+                  </p>
                 </div>
+              ) : (
+                <>
+                  <div className="sh flex justify-between items-end">
+                    <div>
+                      <h1>Behavioral Character Profile</h1>
+                      <p>{candidateName} — Assessed for {roleTitle}</p>
+                    </div>
+                    {/* ... rest of existing report header ... */}
                 <div className="flex items-center gap-6 text-right">
                   <div>
                     <div className="text-xs uppercase tracking-wide text-[var(--muted)]">Overall Score</div>

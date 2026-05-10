@@ -2,7 +2,8 @@ import React, { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { getSupabase } from "./lib/supabase";
 import Login from "./pages/Login";
-import Simulator from "./pages/Simulator"; // We'll refactor this or use it as Admin Dashboard
+import AdminDashboard from "./pages/AdminDashboard";
+import Simulator from "./pages/Simulator";
 import Review from "./pages/Review";
 
 // Simple Protected Route wrapper
@@ -42,12 +43,12 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/" element={
           <ProtectedRoute>
-            <Simulator />
+            <AdminDashboard />
           </ProtectedRoute>
         } />
         <Route path="/admin" element={
           <ProtectedRoute>
-            <Simulator />
+            <AdminDashboard />
           </ProtectedRoute>
         } />
         <Route path="/assess/:token" element={<Simulator isCandidateView={true} />} />
