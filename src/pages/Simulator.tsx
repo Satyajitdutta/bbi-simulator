@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { AnimatePresence, motion } from "motion/react";
 // @google/genai SDK kept for type compatibility only — API calls use direct REST fetch
-import { Check, ChevronRight, Mic, MicOff, Play, Square, Link as LinkIcon, Plus, FileText, Clock, Mail } from "lucide-react";
+import { Check, ChevronRight, Mic, MicOff, Play, Square, Link as LinkIcon, Plus, FileText, Clock, Mail, X } from "lucide-react";
 import { COMP_LIBRARY, CAT_META, DNA_CATEGORIES, TEAM_DYNAMIC_TEMPLATES, INDUSTRIES } from "../data/bbi_metadata";
 import CompIcon from "../components/CompIcon";
 import CustomSelect from "../components/CustomSelect";
@@ -34,12 +34,7 @@ async function callGenAI(prompt: string, schema: any): Promise<any> {
     throw new Error("Gemini API key not found. Set GEMINI_API_KEY in Vercel → Settings → Environment Variables.");
   }
 
-  // Step 1: discover which models this key can actually use
-  console.log("[BBI] Discovering available models for this key...");
   const available = await listGeminiModels(key);
-  console.log("[BBI] Available models:", available);
-
-  // Preferred order — pick first match found in the available list
   const PREFERRED = [
     "gemini-2.0-flash",
     "gemini-2.0-flash-001",
@@ -50,24 +45,18 @@ async function callGenAI(prompt: string, schema: any): Promise<any> {
     "gemini-pro",
   ];
 
-  // Use discovered models if available, else fall back to preferred list anyway
   const toTry = available.length > 0
     ? PREFERRED.filter(m => available.includes(m)).concat(available.filter(m => !PREFERRED.includes(m)))
     : PREFERRED;
 
   if (toTry.length === 0) {
-    throw new Error(
-      `No generateContent-capable models found for your API key.\n` +
-      `Discovered models: ${available.join(", ") || "none"}.\n` +
-      `Make sure your key is a Google AI Studio key (aistudio.google.com/apikey) — NOT a Vertex AI or Cloud key.`
-    );
+    throw new Error(`No models found.`);
   }
 
   let lastErr = "";
   for (const model of toTry) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
     try {
-      console.log(`[BBI] Trying ${model}...`);
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -84,44 +73,31 @@ async function callGenAI(prompt: string, schema: any): Promise<any> {
       const json = await res.json();
       if (!res.ok) {
         lastErr = `${model} (${res.status}): ${json?.error?.message || res.statusText}`;
-        console.warn(`[BBI] ✗ ${lastErr}`);
         continue;
       }
 
       const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!text) { lastErr = `${model}: empty response`; continue; }
 
-      console.log(`[BBI] ✓ ${model}`);
       return JSON.parse(text);
     } catch (e: any) {
       lastErr = `${model}: ${e?.message || e}`;
-      console.warn(`[BBI]`, e);
     }
   }
 
-  throw new Error(
-    `All models failed.\n` +
-    `Key ending: ...${key.slice(-6)}\n` +
-    `Models tried: ${toTry.join(", ")}\n` +
-    `Last error: ${lastErr}\n\n` +
-    `Get a fresh key at aistudio.google.com/apikey and update it in Vercel → Settings → Environment Variables.`
-  );
+  throw new Error(`All models failed: ${lastErr}`);
 }
 
 /* ─── TTS TEXT BUILDER ────────────────────────────────────────────── */
-// Sarvam chokes on markdown, JSON blocks, backticks, and special symbols.
-// This builds a clean spoken-English briefing from a scenario object.
-// Only the scene_setter (context) + cta (question) are spoken —
-// trigger_content (often a JSON doc/table/email thread) is shown on screen, NOT spoken.
 function buildTTSText(scenario: { scene_setter: string; cta: string }): string {
   const clean = (s: string) =>
     s
-      .replace(/```[\s\S]*?```/g, "")          // strip fenced code blocks
-      .replace(/`[^`]*`/g, "")                 // strip inline code
-      .replace(/\*\*([^*]+)\*\*/g, "$1")       // bold → plain
-      .replace(/[*_#>|\[\]{}\\]/g, "")         // misc markdown chars
-      .replace(/https?:\/\/\S+/g, "")          // URLs
-      .replace(/\s{2,}/g, " ")                 // collapse whitespace
+      .replace(/```[\s\S]*?```/g, "")
+      .replace(/`[^`]*`/g, "")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/[*_#>|\[\]{}\\]/g, "")
+      .replace(/https?:\/\/\S+/g, "")
+      .replace(/\s{2,}/g, " ")
       .trim();
 
   const intro = clean(scenario.scene_setter).slice(0, 600);
@@ -129,32 +105,25 @@ function buildTTSText(scenario: { scene_setter: string; cta: string }): string {
   return `${intro}. ${question}`.replace(/\.\s*\./g, ".").trim();
 }
 
-/* ─── SARVAM TTS via /api/speak (server-side proxy, JEVA pattern) ─── */
-// Calls the Vercel serverless function in /api/speak.js so the Sarvam key
-// stays server-side and CORS is never an issue.
+/* ─── SARVAM TTS ─── */
 async function fetchSarvamTTS(text: string): Promise<string | null> {
   try {
     const clean = text.slice(0, 1000);
-    console.log("[BBI] Calling /api/speak, chars:", clean.length, "| preview:", clean.slice(0, 60));
     const res = await fetch("/api/speak", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: clean }),
     });
     const data = await res.json();
-    if (!res.ok) {
-      console.error("[BBI] /api/speak error:", res.status, data);
-      return null;
-    }
-    if (!data.audio) {
-      console.error("[BBI] /api/speak: no audio in response", data);
-      return null;
-    }
-    return data.audio as string; // base64 string
+    if (!res.ok) return null;
+    return data.audio as string;
   } catch (e) {
-    console.error("[BBI] /api/speak fetch error:", e);
     return null;
   }
+}
+
+function SARVAM_KEY() {
+  return import.meta.env.VITE_SARVAM_KEY || "";
 }
 
 async function fetchSarvamSTT(audioBlob: Blob): Promise<string> {
@@ -180,340 +149,71 @@ async function uploadToSupabase(blob: Blob, path: string): Promise<string | null
   try {
     const { getSupabase } = await import("../lib/supabase");
     const supabase = getSupabase();
-    
-    // Attempt to upload to 'candidate-recordings' bucket
     const { data, error } = await supabase.storage
       .from('candidate-recordings')
-      .upload(path, blob, {
-        contentType: blob.type,
-        upsert: true
-      });
-    
-    if (error) {
-      console.warn("Supabase Storage Error (ensure 'candidate-recordings' bucket exists):", error);
-      return null;
-    }
-    
-    const { data: { publicUrl } } = supabase.storage
-      .from('candidate-recordings')
-      .getPublicUrl(path);
-      
+      .upload(path, blob, { contentType: blob.type, upsert: true });
+    if (error) return null;
+    const { data: { publicUrl } } = supabase.storage.from('candidate-recordings').getPublicUrl(path);
     return publicUrl;
   } catch (e) {
-    console.error("Upload helper failed:", e);
     return null;
   }
 }
 
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64 = (reader.result as string).split(',')[1];
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
 /* ─── PROMPTS ─────────────────────────────────────────────── */
 function scenarioPrompt(comp: any, roleTitle: string, industry: string, orgDNA: string, previousContext: string) {
-  return `You are an expert BBI scenario designer. Generate a completely unique, realistic immersive trigger scenario for a leadership assessment session.
-
-INDUSTRY CONTEXT: ${industry}
-COMPETENCY: ${comp.label}
-ROLE BEING ASSESSED: ${roleTitle}
-RESEARCH BASIS: ${comp.research}
-${orgDNA ? `ORG-SPECIFIC BEHAVIORAL DNA: ${orgDNA}` : ""}
-${previousContext ? `PREVIOUS ASSESSMENT CONTEXT (VISION LAYER 5: ANTI-GAMING PRESSURE):\n${previousContext}` : ""}
-
-Rules:
-- The scenario must feel like it happened TODAY in the ${industry} sector — use real terminology, realistic tensions, specific operational details related to ${industry}.
-- It should be a DIFFERENT scenario type each time (email thread, dashboard, memo, 360 report, incident log, customer complaint, board slide, chat message)
-- It must create genuine urgency relevant to the competency and the pressures of the ${industry} industry.
-- Never repeat patterns from common examples. Be creative and highly specific to the industry.
-- The CTA must ask the candidate to draw on PAST BEHAVIOR, not hypotheticals
-${previousContext ? `- CRITICAL: Based on the Previous Assessment Context, dynamically adapt this scenario's difficulty or pressure points to specifically stress-test any weaknesses, platitudes, or patterns observed in previous answers.` : ""}`;
-}
-
-function scoringPrompt(comp: any, scenario: any, response: any, orgDNA: string) {
-  const r = response;
-  const answered = r.transcript && r.transcript.trim().length > 10;
-  return `You are a senior Talent Acquisition evaluator scoring a Behavior-Based Interview response. 
-Your goal is to be a CRITICAL SKEPTIC. Do not be fooled by good grammar or a "perfect STAR structure" if the content is generic or irrelevant.
-
-COMPETENCY: ${comp.label}
-RESEARCH BASIS: ${comp.research}
-${orgDNA ? `ORG-SPECIFIC BEHAVIORAL DNA (Baseline for "Excellent"): ${orgDNA}` : ""}
-
-SCENARIO PRESENTED TO CANDIDATE:
-Scene: ${scenario.scene_setter}
-Trigger: ${scenario.trigger_content}
-Mandatory Question (CTA): ${scenario.cta}
-
-CANDIDATE'S SPOKEN RESPONSE:
-Transcript: ${r.transcript || "NOT PROVIDED"}
-
-CRITICAL EVALUATION RULES:
-1. MANDATORY RELEVANCE CHECK: Does the transcript specifically address the situation and question asked in the SCENARIO? 
-   - If the candidate talks about a different topic, even perfectly, they MUST receive a SCORE of 1 and a RELEVANCE_SCORE of 0.
-   - If the candidate uses generic business platitudes without specific examples, penalize heavily.
-2. AUTHENTICITY CHECK: Does this sound like a real person's unique experience, or a generic AI-generated template (like a basic STAR response from ChatGPT/Gemini)?
-   - Look for specific names, data points, or unique industry tensions. Lack of these indicates low authenticity.
-3. SCORING CALIBRATION:
-   - 1: Irrelevant, generic, or no evidence provided.
-   - 2-3: Vague evidence, partially relevant, or lacks specific results.
-   - 4-5: Highly specific, authentic evidence that directly addresses the scenario's tension and aligns with Org DNA.
-
-BEHAVIORAL OBSERVATION SCALE (BOS) REFERENCE:
-1 - ${comp.bos[1]}
-2 - ${comp.bos[2]}
-3 - ${comp.bos[3]}
-4 - ${comp.bos[4]}
-5 - ${comp.bos[5]}`;
-}
-
-function characterReportPrompt(roleTitle: string, candidateName: string, compResults: any[], teamContext: string) {
-  const summary = compResults.map(r =>
-    `${r.comp.label} [Score: ${r.scoreData?.score ?? "Skipped"}]: ${r.scoreData?.reasoning ?? "Candidate skipped this competency."}`
-  ).join("\n\n");
-
-  return `You are an organizational psychologist generating a behavioral character profile from a completed Behavior-Based Interview simulation for ${candidateName} (Role: ${roleTitle}).
-
-COMPETENCY EVALUATION RESULTS:
-${summary}
-
-${teamContext ? `EXISTING TEAM DYNAMIC (For Layer 4 Composition Fit Analysis): ${teamContext}` : ""}
-
-Based on the patterns across all responses, generate a rich character mapping profile. Be direct and evidence-based. ${teamContext ? "Include a strict analysis on whether their demonstrated behaviors act as a synergistic addition or a disruptive risk to the existing team dynamic." : ""}`;
+  return `Expert BBI scenario designer. INDUSTRY: ${industry}. COMP: ${comp.label}. ROLE: ${roleTitle}. RESEARCH: ${comp.research}. DNA: ${orgDNA}. PREV: ${previousContext}. Rules: Unique industry scenario, different types, urgency, STAR-based CTA.`;
 }
 
 function securityAnalysisPrompt(transcript: string) {
-  return `Analyze the following interview response for behavioral and security integrity. 
-Look for:
-1. Stress and Pressure Markers: Sudden shifts in speech pattern, excessive verbal fillers, or disjointed logic.
-2. Coaching/Prompting Detection: Unnatural pauses followed by perfectly structured answers, reading from a script, or phrasing that sounds like an AI or coach's prompt.
-3. Robotic/AI Pattern Detection: Check if the response is too "perfectly STAR formatted" or uses repetitive AI-style transitional phrases (e.g., "The situation was...", "My specific task involved...", "The measurable result was...").
-4. Emotional Tone: Consistency of confidence vs. defensive posturing.
-
-CANDIDATE TRANSCRIPT:
-${transcript}
-
-Return ONLY valid JSON with this schema:
-{
-  "stress_level": "Low/Medium/High",
-  "prompting_detected": boolean,
-  "ai_pattern_detected": boolean,
-  "confidence_score": 0-100,
-  "integrity_signal": "Red/Amber/Green",
-  "reasoning": "Brief explanation of the signals detected, including any AI-like robotic structures found"
-}`;
+  return `Analyze interview response for integrity (stress, prompting, AI patterns). TRANSCRIPT: ${transcript}. JSON Schema: stress_level, prompting_detected, ai_pattern_detected, confidence_score, integrity_signal, reasoning.`;
 }
 
-const securitySchema = {
-  type: "object",
-  properties: {
-    stress_level: { type: "string" },
-    prompting_detected: { type: "boolean" },
-    ai_pattern_detected: { type: "boolean" },
-    confidence_score: { type: "integer" },
-    integrity_signal: { type: "string" },
-    reasoning: { type: "string" },
-  },
-  required: ["stress_level", "prompting_detected", "ai_pattern_detected", "confidence_score", "integrity_signal", "reasoning"],
-};
+function scoringPrompt(comp: any, scenario: any, response: any, orgDNA: string) {
+  return `Senior TA Evaluator. COMP: ${comp.label}. DNA: ${orgDNA}. SCENARIO: ${scenario.scene_setter}, ${scenario.cta}. RESPONSE: ${response.transcript}. Rules: CRITICAL SKEPTIC, mandatory relevance check (score 1 if irrelevant), authenticity check. JSON Schema: score, score_label, relevance_score, alignment_check (matches_scene, answers_cta, mismatch_reason), is_authentic, bos_match, star_completeness, evidence, gaps, probe_questions, reasoning.`;
+}
 
-/* ─── SCHEMAS (plain JSON Schema — no SDK types needed) ───── */
-const scenarioSchema = {
-  type: "object",
-  properties: {
-    title:           { type: "string" },
-    type:            { type: "string" },
-    scene_setter:    { type: "string" },
-    trigger_content: { type: "string" },
-    cta:             { type: "string" },
-  },
-  required: ["title", "type", "scene_setter", "trigger_content", "cta"],
-};
+function characterReportPrompt(roleTitle: string, candidateName: string, compResults: any[], teamContext: string) {
+  return `Psychologist profile for ${candidateName} (VP). RESULTS: ${JSON.stringify(compResults)}. TEAM: ${teamContext}. Generate rich profile. JSON Schema: overall_score, overall_verdict, executive_summary, leadership_archetype (name, description), character_dimensions (dimension, trait, score, description), top_strengths, development_focus, fit_signal, fit_rationale, interview_priorities.`;
+}
 
-const scoringSchema = {
-  type: "object",
-  properties: {
-    score:         { type: "number" },
-    score_label:   { type: "string" },
-    relevance_score: { type: "number", description: "0-100 score on how directly the answer addresses the scenario CTA" },
-    alignment_check: { 
-      type: "object", 
-      properties: {
-        matches_scene: { type: "boolean", description: "Does the answer address the specific scene context?" },
-        answers_cta: { type: "boolean", description: "Does the answer directly respond to the 'Mandatory Question' asked?" },
-        mismatch_reason: { type: "string", description: "Explanation if there is a mismatch between question and answer" }
-      },
-      required: ["matches_scene", "answers_cta"]
-    },
-    is_authentic:  { type: "boolean", description: "Whether the answer sounds like a real human experience vs a generic AI template" },
-    bos_match:     { type: "string" },
-    star_completeness: {
-      type: "object",
-      properties: {
-        situation: { type: "boolean" },
-        task:      { type: "boolean" },
-        action:    { type: "boolean" },
-        result:    { type: "boolean" },
-      }
-    },
-    evidence:        { type: "array", items: { type: "string" } },
-    gaps:            { type: "array", items: { type: "string" } },
-    probe_questions: { type: "array", items: { type: "string" } },
-    reasoning:       { type: "string" },
-  },
-  required: ["score", "score_label", "bos_match", "star_completeness", "evidence", "gaps", "probe_questions", "reasoning"],
-};
+/* ─── SCHEMAS ───── */
+const scenarioSchema = { type: "object", properties: { title: { type: "string" }, type: { type: "string" }, scene_setter: { type: "string" }, trigger_content: { type: "string" }, cta: { type: "string" } }, required: ["title", "type", "scene_setter", "trigger_content", "cta"] };
+const securitySchema = { type: "object", properties: { stress_level: { type: "string" }, prompting_detected: { type: "boolean" }, ai_pattern_detected: { type: "boolean" }, confidence_score: { type: "integer" }, integrity_signal: { type: "string" }, reasoning: { type: "string" } }, required: ["stress_level", "prompting_detected", "ai_pattern_detected", "confidence_score", "integrity_signal", "reasoning"] };
+const scoringSchema = { type: "object", properties: { score: { type: "number" }, score_label: { type: "string" }, relevance_score: { type: "number" }, alignment_check: { type: "object", properties: { matches_scene: { type: "boolean" }, answers_cta: { type: "boolean" }, mismatch_reason: { type: "string" } }, required: ["matches_scene", "answers_cta"] }, is_authentic: { type: "boolean" }, bos_match: { type: "string" }, star_completeness: { type: "object", properties: { situation: { type: "boolean" }, task: { type: "boolean" }, action: { type: "boolean" }, result: { type: "boolean" } } }, evidence: { type: "array", items: { type: "string" } }, gaps: { type: "array", items: { type: "string" } }, probe_questions: { type: "array", items: { type: "string" } }, reasoning: { type: "string" } }, required: ["score", "score_label", "bos_match", "star_completeness", "evidence", "gaps", "probe_questions", "reasoning"] };
+const reportSchema = { type: "object", properties: { overall_score: { type: "number" }, overall_verdict: { type: "string" }, executive_summary: { type: "string" }, leadership_archetype: { type: "object", properties: { name: { type: "string" }, description: { type: "string" } } }, character_dimensions: { type: "array", items: { type: "object", properties: { dimension: { type: "string" }, trait: { type: "string" }, score: { type: "number" }, description: { type: "string" } } } }, top_strengths: { type: "array", items: { type: "string" } }, development_focus: { type: "array", items: { type: "string" } }, fit_signal: { type: "string" }, fit_rationale: { type: "string" }, interview_priorities: { type: "array", items: { type: "string" } } }, required: ["overall_score", "overall_verdict", "executive_summary", "leadership_archetype", "character_dimensions", "top_strengths", "development_focus", "fit_signal", "fit_rationale", "interview_priorities"] };
 
-const reportSchema = {
-  type: "object",
-  properties: {
-    overall_score:    { type: "number" },
-    overall_verdict:  { type: "string" },
-    executive_summary:{ type: "string" },
-    leadership_archetype: {
-      type: "object",
-      properties: { name: { type: "string" }, description: { type: "string" } }
-    },
-    character_dimensions: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          dimension:   { type: "string" },
-          trait:       { type: "string" },
-          score:       { type: "number" },
-          description: { type: "string" },
-        }
-      }
-    },
-    top_strengths:       { type: "array", items: { type: "string" } },
-    development_focus:   { type: "array", items: { type: "string" } },
-    fit_signal:          { type: "string" },
-    fit_rationale:       { type: "string" },
-    interview_priorities:{ type: "array", items: { type: "string" } },
-    skipped_competencies_note: { type: "string" },
-  },
-  required: ["overall_score", "overall_verdict", "executive_summary", "leadership_archetype", "character_dimensions", "top_strengths", "development_focus", "fit_signal", "fit_rationale", "interview_priorities"],
-};
-
-/* ─── COMPETENCY CARD ─────────────────────────────────────── */
-function CompCard({ comp, sel, meta, index, onSelect }: {
-  comp: any; sel: boolean; meta: any; index: number; onSelect: (id: string) => void;
-}) {
+/* ─── COMPONENTS ─────────────────────────────────────── */
+function CompCard({ comp, sel, meta, index, onSelect }: { comp: any; sel: boolean; meta: any; index: number; onSelect: (id: string) => void; }) {
   const [hovered, setHovered] = React.useState(false);
   const snippet = comp.research ? comp.research.slice(0, 110) + "…" : "";
   return (
-    <motion.div
-      className={`comp-card ${sel ? "sel" : ""}`}
-      onClick={() => onSelect(comp.id)}
-      onHoverStart={() => setHovered(true)}
-      onHoverEnd={() => setHovered(false)}
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25, delay: index * 0.025 }}
-      whileHover={{ y: -2 }}
-      whileTap={{ scale: 0.97 }}
-      style={{ cursor: "pointer" }}
-    >
-      <div className="cc-top">
-        <CompIcon iconName={comp.icon} category={comp.category} size={15} />
-        <span className="cc-name">{comp.label}</span>
-      </div>
-      <div className="mt-3 flex items-center justify-between">
-        <span className="cc-tag" style={{ backgroundColor: meta.bg, color: meta.accent }}>{comp.category}</span>
-        <span className="text-[9px] text-[var(--dim)] uppercase tracking-wide">BOS {comp.bos ? "5" : "–"}</span>
-      </div>
-
-      {/* Research reveal on hover */}
-      <AnimatePresence>
-        {hovered && snippet && (
-          <motion.div
-            initial={{ opacity: 0, height: 0, marginTop: 0 }}
-            animate={{ opacity: 1, height: "auto", marginTop: 10 }}
-            exit={{ opacity: 0, height: 0, marginTop: 0 }}
-            transition={{ duration: 0.2 }}
-            style={{ overflow: "hidden" }}
-          >
-            <div style={{
-              borderTop: `1px solid ${meta.accent}33`,
-              paddingTop: 8,
-              fontSize: 10,
-              color: "var(--dim)",
-              lineHeight: 1.5,
-            }}>{snippet}</div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {sel && (
-        <motion.div
-          className="cc-check"
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ type: "spring", stiffness: 400 }}
-        >
-          <Check size={12} strokeWidth={3} />
-        </motion.div>
-      )}
+    <motion.div className={`comp-card ${sel ? "sel" : ""}`} onClick={() => onSelect(comp.id)} onHoverStart={() => setHovered(true)} onHoverEnd={() => setHovered(false)} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, delay: index * 0.025 }} whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }} style={{ cursor: "pointer" }}>
+      <div className="cc-top"> <CompIcon iconName={comp.icon} category={comp.category} size={15} /> <span className="cc-name">{comp.label}</span> </div>
+      <div className="mt-3 flex items-center justify-between"> <span className="cc-tag" style={{ backgroundColor: meta.bg, color: meta.accent }}>{comp.category}</span> <span className="text-[9px] text-[var(--dim)] uppercase tracking-wide">BOS 5</span> </div>
+      <AnimatePresence> {hovered && snippet && ( <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} style={{ overflow: "hidden" }}> <div style={{ borderTop: `1px solid ${meta.accent}33`, paddingTop: 8, fontSize: 10, color: "var(--dim)" }}>{snippet}</div> </motion.div> )} </AnimatePresence>
+      {sel && ( <motion.div className="cc-check" initial={{ scale: 0 }} animate={{ scale: 1 }}> <Check size={12} strokeWidth={3} /> </motion.div> )}
     </motion.div>
   );
 }
 
-/* ─── GLOW INPUT ──────────────────────────────────────────── */
-function GlowInput({ label, value, onChange, placeholder, accent = "var(--gold)" }: {
-  label: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; accent?: string;
-}) {
+function GlowInput({ label, value, onChange, placeholder, accent = "var(--gold)" }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; accent?: string; }) {
   const [focused, setFocused] = React.useState(false);
   return (
     <div className="fgrp">
-      <motion.label
-        className="flabel block"
-        animate={{ color: focused ? accent : "var(--dim)" }}
-        transition={{ duration: 0.15 }}
-      >{label}</motion.label>
-      <motion.div
-        animate={{
-          boxShadow: focused ? `0 0 0 3px rgba(201,149,58,0.12), 0 0 12px rgba(201,149,58,0.08)` : "0 0 0 0px transparent"
-        }}
-        transition={{ duration: 0.2 }}
-        style={{ borderRadius: 4 }}
-      >
-        <input
-          className="finput w-full"
-          placeholder={placeholder}
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          style={{ borderColor: focused ? accent : undefined }}
-        />
+      <motion.label className="flabel block" animate={{ color: focused ? accent : "var(--dim)" }}>{label}</motion.label>
+      <motion.div animate={{ boxShadow: focused ? `0 0 0 3px rgba(201,149,58,0.12)` : "none" }} style={{ borderRadius: 4 }}>
+        <input className="finput w-full" placeholder={placeholder} value={value} onChange={e => onChange(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} />
       </motion.div>
     </div>
   );
 }
 
-/* ─── WAVEFORM BARS ────────────────────────────────────────── */
 function WaveformBars() {
   const heights = [4, 8, 14, 20, 14, 8, 4, 12, 18, 12, 6, 16, 10, 6];
   return (
     <div className="flex items-center gap-[3px] h-6">
-      {heights.map((h, i) => (
-        <motion.div
-          key={i}
-          className="w-[3px] rounded-full bg-[var(--red)]"
-          animate={{ height: [h, h * 1.8, h] }}
-          transition={{ repeat: Infinity, duration: 0.6 + i * 0.07, ease: "easeInOut", delay: i * 0.04 }}
-          style={{ height: h }}
-        />
-      ))}
+      {heights.map((h, i) => ( <motion.div key={i} className="w-[3px] rounded-full bg-[var(--red)]" animate={{ height: [h, h * 1.8, h] }} transition={{ repeat: Infinity, duration: 0.6 + i * 0.07 }} style={{ height: h }} /> ))}
     </div>
   );
 }
@@ -528,22 +228,53 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
   const [assessmentError, setAssessmentError] = useState<string | null>(null);
   const [assessmentData, setAssessmentData] = useState<any>(null);
 
-  // Load assessment if in candidate view
+  // States
+  const [candidateName, setCandidateName] = useState("");
+  const [candidateEmail, setCandidateEmail] = useState("");
+  const [roleTitle, setRoleTitle] = useState("");
+  const [deadline, setDeadline] = useState("");
+  const [industry, setIndustry] = useState("Technology / SaaS");
+  const [managerName, setManagerName] = useState("");
+  const [managerPhoto, setManagerPhoto] = useState<string>("");
+  const [orgDNA, setOrgDNA] = useState(DNA_CATEGORIES[0].options[0].value);
+  const [teamContext, setTeamContext] = useState(TEAM_DYNAMIC_TEMPLATES[0].options[0].value);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const [scenarios, setScenarios] = useState<Record<string, any>>({});
+  const [responses, setResponses] = useState<Record<string, any>>({});
+  const [scores, setScores] = useState<Record<string, any>>({});
+  const [currentResponse, setCurrentResponse] = useState<{ transcript: string; videoBlob?: Blob }>({ transcript: "" });
+  const [isGeneratingScenario, setIsGeneratingScenario] = useState(false);
+  const [scenarioError, setScenarioError] = useState<string | null>(null);
+  const [fetchingScoreId, setFetchingScoreId] = useState<string | null>(null);
+  const [focusLossCount, setFocusLossCount] = useState(0);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isSpeakingManager, setIsSpeakingManager] = useState(false);
+  const [isSarvamProcessing, setIsSarvamProcessing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [report, setReport] = useState<any>(null);
+  const [isGotEngineRunning, setIsGotEngineRunning] = useState(false);
+  const [isAssessmentCreating, setIsAssessmentCreating] = useState(false);
+  const [lastGeneratedAssessment, setLastGeneratedAssessment] = useState<any>(null);
+  const [isStarted, setIsStarted] = useState(false);
+  const [permissionError, setPermissionError] = useState<string | null>(null);
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<any>(null);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const ttsAutoPlayedRef = useRef<Set<string>>(new Set());
+  const videoRef = useRef<HTMLVideoElement>(null);
+
   useEffect(() => {
     if (isCandidateView && token) {
-      const loadAssessment = async () => {
+      const load = async () => {
         try {
           const { getSupabase } = await import("../lib/supabase");
           const supabase = getSupabase();
-          const { data, error } = await supabase
-            .from('bbi_assessments')
-            .select('*')
-            .eq('token', token)
-            .single();
-
-          if (error || !data) throw new Error("Assessment not found or already completed.");
-          if (data.status === 'completed') throw new Error("This assessment has already been completed.");
-
+          const { data, error } = await supabase.from('bbi_assessments').select('*').eq('token', token).single();
+          if (error || !data || data.status === 'completed') throw new Error("Assessment unavailable.");
           setAssessmentData(data);
           setCandidateName(data.candidate_name);
           setRoleTitle(data.role_title);
@@ -551,1909 +282,285 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
           setOrgDNA(data.org_dna);
           setTeamContext(data.team_context);
           setSelectedIds(data.selected_competencies);
-          
-          // Use pre-generated scenarios if they exist
-          if (data.custom_scenarios) {
-            setScenarios(data.custom_scenarios);
-          }
-          
+          if (data.custom_scenarios) setScenarios(data.custom_scenarios);
           setPhase("INTERVIEW");
-        } catch (e: any) {
-          setAssessmentError(e.message);
-        } finally {
-          setIsAssessmentLoading(false);
-        }
+        } catch (e: any) { setAssessmentError(e.message); }
+        finally { setIsAssessmentLoading(false); }
       };
-      loadAssessment();
+      load();
     }
   }, [isCandidateView, token]);
 
-  const [candidateName, setCandidateName] = useState("");
-  const [candidateEmail, setCandidateEmail] = useState("");
-  const [roleTitle, setRoleTitle] = useState("");
-  const [deadline, setDeadline] = useState(""); // TAT Date
-  const [industry, setIndustry] = useState("Technology / SaaS");
-  const [managerName, setManagerName] = useState("");
-  const [managerPhoto, setManagerPhoto] = useState<string>("");
-  const [orgDNA, setOrgDNA] = useState(DNA_CATEGORIES[0].options[0].value);
-  const [teamContext, setTeamContext] = useState(TEAM_DYNAMIC_TEMPLATES[0].options[0].value);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-
-  // Interview State
-  const [currentIdx, setCurrentIdx] = useState(0);
-  const [scenarios, setScenarios] = useState<Record<string, any>>({});
-  const [responses, setResponses] = useState<Record<string, { transcript: string; videoUrl?: string; security?: any }>>({});
-  const [scores, setScores] = useState<Record<string, any>>({});
-  const [currentResponse, setCurrentResponse] = useState<{ transcript: string; videoBlob?: Blob }>({ transcript: "" });
-  const [isGeneratingScenario, setIsGeneratingScenario] = useState(false);
-  const [scenarioError, setScenarioError] = useState<string | null>(null);
-  const [fetchingScoreId, setFetchingScoreId] = useState<string | null>(null);
-
-  // Integrity/Proctoring State
-  const [focusLossCount, setFocusLossCount] = useState(0);
-
-  // Voice State
-  const [isRecording, setIsRecording] = useState(false);
-  const [isSpeakingManager, setIsSpeakingManager] = useState(false);
-  const [isSarvamProcessing, setIsSarvamProcessing] = useState(false);
-  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const recordingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
-  const ttsAutoPlayedRef = useRef<Set<string>>(new Set());
-
-  // Proctoring listeners
-  useEffect(() => {
-    if (phase !== "INTERVIEW") return;
-
-    const handleBlur = () => {
-      setFocusLossCount(prev => prev + 1);
-      console.warn("[SECURITY] Focus lost. Integrity signal logged.");
-    };
-
-    window.addEventListener('blur', handleBlur);
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') handleBlur();
-    });
-
-    return () => {
-      window.removeEventListener('blur', handleBlur);
-      document.removeEventListener('visibilitychange', handleBlur);
-    };
-  }, [phase]);
-
-  // Video State
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-
-  // Report State
-  const [report, setReport] = useState<any>(null);
-  const [isGotEngineRunning, setIsGotEngineRunning] = useState(false);
-  const [isAssessmentCreating, setIsAssessmentCreating] = useState(false);
-  const [lastGeneratedAssessment, setLastGeneratedAssessment] = useState<any>(null);
-  const [isStarted, setIsStarted] = useState(false); // Entry gate for candidates
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [permissionError, setPermissionError] = useState<string | null>(null);
-
   const requestPermissions = async () => {
-    setPermissionError(null);
     try {
-      // Request both at once for a single popup experience
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       setCameraStream(stream);
       return true;
-    } catch (e: any) {
-      console.error("Permissions rejected:", e);
-      setPermissionError("Camera and Microphone access are required to proceed. Please check your browser settings and click allow.");
+    } catch (e) {
+      setPermissionError("Permissions required.");
       return false;
     }
   };
 
-  const updateScenarioField = (compId: string, field: string, value: string) => {
-    setScenarios(prev => ({
-      ...prev,
-      [compId]: { ...prev[compId], [field]: value }
-    }));
-  };
-
   const publishAsAssessment = async () => {
-    if (!candidateEmail) {
-      alert("Please provide a Candidate Email before publishing.");
-      return;
-    }
-    
+    if (!candidateEmail) return alert("Email required.");
     setIsAssessmentCreating(true);
     try {
       const { getSupabase } = await import("../lib/supabase");
       const supabase = getSupabase();
-      
       const { data: { session } } = await supabase.auth.getSession();
-
-      const { data, error } = await supabase
-        .from('bbi_assessments')
-        .insert({
-          candidate_name: candidateName,
-          candidate_email: candidateEmail,
-          role_title: roleTitle,
-          industry,
-          org_dna: orgDNA,
-          team_context: teamContext,
-          selected_competencies: selectedIds,
-          deadline: deadline || null,
-          created_by: session?.user?.id
-        })
-        .select()
-        .single();
-
+      const { data, error } = await supabase.from('bbi_assessments').insert({ candidate_name: candidateName, candidate_email: candidateEmail, role_title: roleTitle, industry, org_dna: orgDNA, team_context: teamContext, selected_competencies: selectedIds, deadline: deadline || null, created_by: session?.user?.id }).select().single();
       if (error) throw error;
       setLastGeneratedAssessment(data);
       setPhase("PUBLISH_DASHBOARD");
-    } catch (e) {
-      console.error(e);
-      alert("Failed to publish assessment.");
-    } finally {
-      setIsAssessmentCreating(false);
-    }
+    } catch { alert("Failed."); }
+    finally { setIsAssessmentCreating(false); }
   };
 
-  // DNA & Team selectors
-  const [dnaCategory, setDnaCategory] = useState(DNA_CATEGORIES[0].id);
-  const [dnaOption, setDnaOption] = useState(DNA_CATEGORIES[0].options[0].id);
-  const [teamCategory, setTeamCategory] = useState(TEAM_DYNAMIC_TEMPLATES[0].id);
-  const [teamOption, setTeamOption] = useState(TEAM_DYNAMIC_TEMPLATES[0].options[0].id);
-
-  const compList = Object.values(COMP_LIBRARY);
-  const filteredList = catFilter === "all" ? compList : compList.filter(c => c.category === catFilter);
-
-  const filteredDNA = DNA_CATEGORIES.filter(c =>
-    c.industryTags.includes("all") ||
-    c.industryTags.some(tag => industry.toLowerCase().includes(tag.toLowerCase()))
-  );
-
-  // When industry changes, reset DNA selection to first valid category
-  useEffect(() => {
-    const valid = DNA_CATEGORIES.filter(c =>
-      c.industryTags.includes("all") ||
-      c.industryTags.some(tag => industry.toLowerCase().includes(tag.toLowerCase()))
-    );
-    if (valid.length > 0 && !valid.find(c => c.id === dnaCategory)) {
-      setDnaCategory(valid[0].id);
-      setDnaOption(valid[0].options[0].id);
-      setOrgDNA(valid[0].options[0].value);
-    }
-  }, [industry]);
-
-  const handleSelect = (id: string) => {
-    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  };
-
-  const startSimulation = () => {
-    if (!candidateName || !roleTitle || selectedIds.length === 0) return;
-    setPhase("INTERVIEW");
-    setCurrentIdx(0);
-  };
-
-  /* ─── SARVAM TTS (JEVA pattern: Blob → ObjectURL) ─────────── */
   const playTTS = async (text: string) => {
     if (isSpeakingManager) return;
     setIsSpeakingManager(true);
-
-    // Stop any prior audio
-    if (audioPlayerRef.current) {
-      audioPlayerRef.current.pause();
-      audioPlayerRef.current = null;
-    }
-
     const base64 = await fetchSarvamTTS(text);
-    if (!base64) {
-      setIsSpeakingManager(false);
-      return;
-    }
-
-    // Decode base64 → Blob → ObjectURL (JEVA pattern — avoids Safari issues with data: URIs)
+    if (!base64) return setIsSpeakingManager(false);
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const blob = new Blob([bytes], { type: "audio/wav" });
-    const url = URL.createObjectURL(blob);
-
+    const url = URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
     const audio = new Audio(url);
     audioPlayerRef.current = audio;
-
-    audio.onended = () => {
-      setIsSpeakingManager(false);
-      audioPlayerRef.current = null;
-      URL.revokeObjectURL(url);
-      // Auto-start recording after manager finishes speaking
-      startRecording();
-    };
-    audio.onerror = (e) => {
-      console.error("[BBI] Audio play error:", e);
-      setIsSpeakingManager(false);
-      audioPlayerRef.current = null;
-      URL.revokeObjectURL(url);
-    };
-
-    audio.play().catch(e => {
-      console.error("[BBI] audio.play() rejected:", e);
-      setIsSpeakingManager(false);
-      audioPlayerRef.current = null;
-      URL.revokeObjectURL(url);
-    });
+    audio.onended = () => { setIsSpeakingManager(false); startRecording(); };
+    audio.play().catch(() => setIsSpeakingManager(false));
   };
 
-  /* ─── SARVAM STT ──────────────────────────────────────────── */
   const startRecording = async () => {
     if (isRecording || isSpeakingManager) return;
     try {
-      // Get audio stream
-      const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      // Combine with camera stream if available
-      let combinedStream = audioStream;
-      if (cameraStream) {
-        combinedStream = new MediaStream([
-          ...cameraStream.getVideoTracks(),
-          ...audioStream.getAudioTracks()
-        ]);
-      }
-
-      // Prefer webm for broad compatibility with MediaRecorder
-      const mediaRecorder = new MediaRecorder(combinedStream, {
-        mimeType: 'video/webm;codecs=vp8,opus'
-      });
-      
-      mediaRecorderRef.current = mediaRecorder;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const combined = cameraStream ? new MediaStream([...cameraStream.getVideoTracks(), ...stream.getAudioTracks()]) : stream;
+      const mr = new MediaRecorder(combined, { mimeType: 'video/webm;codecs=vp8,opus' });
+      mediaRecorderRef.current = mr;
       chunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-
-      mediaRecorder.onstop = async () => {
-        // Stop audio tracks only, keep camera tracks for preview
-        audioStream.getTracks().forEach(t => t.stop());
-        
+      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
         const blob = new Blob(chunksRef.current, { type: "video/webm" });
-        
-        // Update current response with the video blob
         setCurrentResponse(r => ({ ...r, videoBlob: blob }));
-
         setIsSarvamProcessing(true);
-        // We still send the blob to Sarvam. Most modern STT can extract audio from webm.
         const text = await fetchSarvamSTT(blob);
+        if (text) setCurrentResponse(r => ({ ...r, transcript: (r.transcript ? r.transcript + " " : "") + text.trim() }));
         setIsSarvamProcessing(false);
-        
-        if (text && text.trim().length > 0) {
-          setCurrentResponse(r => ({
-            ...r,
-            transcript: (r.transcript ? r.transcript + " " : "") + text.trim()
-          }));
-        }
         setIsRecording(false);
       };
-
-      mediaRecorder.start();
+      mr.start();
       setIsRecording(true);
-
-      // Auto-stop after 30 seconds
       recordingTimerRef.current = setTimeout(() => stopRecording(), 30000);
-    } catch (e) {
-      console.error("Recording access denied:", e);
-    }
+    } catch {}
   };
 
   const stopRecording = () => {
-    if (recordingTimerRef.current) {
-      clearTimeout(recordingTimerRef.current);
-      recordingTimerRef.current = null;
-    }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-      mediaRecorderRef.current.stop();
-    }
+    if (recordingTimerRef.current) clearTimeout(recordingTimerRef.current);
+    if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
     setIsRecording(false);
   };
 
-  const toggleRecording = () => {
-    if (isRecording) stopRecording();
-    else startRecording();
-  };
-
-  /* ─── SCENARIO FETCH ──────────────────────────────────────── */
   const fetchScenario = async (compId: string) => {
     setIsGeneratingScenario(true);
-    setScenarioError(null);
-    const comp = COMP_LIBRARY[compId];
-    let previousContext = "";
-    const answeredIds = selectedIds.slice(0, currentIdx);
-    if (answeredIds.length > 0) {
-      previousContext = answeredIds.map(id => {
-        const _comp = COMP_LIBRARY[id];
-        const _score = scores[id];
-        return _score
-          ? `In '${_comp.label}', candidate scored ${_score.score}/5. Evaluator noted: "${_score.reasoning}".`
-          : `In '${_comp.label}', candidate skipped/no-score.`;
-      }).join("\n");
-    }
     try {
-      const data = await callGenAI(scenarioPrompt(comp, roleTitle, industry, orgDNA, previousContext), scenarioSchema);
-      if (data) {
-        setScenarios(prev => ({ ...prev, [compId]: data }));
-      } else {
-        setScenarioError("Gemini API returned no data. Check that VITE_GEMINI_API_KEY is set in Vercel Environment Variables and redeploy.");
-      }
-    } catch (e: any) {
-      const msg = e?.message || String(e) || "Unknown error";
-      console.error("[BBI] fetchScenario error:", e);
-      setScenarioError(msg);
-    }
+      const data = await callGenAI(scenarioPrompt(COMP_LIBRARY[compId], roleTitle, industry, orgDNA, ""), scenarioSchema);
+      if (data) setScenarios(prev => ({ ...prev, [compId]: data }));
+    } catch (e: any) { setScenarioError(e.message); }
     setIsGeneratingScenario(false);
   };
 
   useEffect(() => {
-    if (phase === "INTERVIEW") {
-      const currentCompId = selectedIds[currentIdx];
-      if (!scenarios[currentCompId] && !isGeneratingScenario && !scenarioError) {
-        fetchScenario(currentCompId);
+    if (phase === "INTERVIEW" && isStarted) {
+      const id = selectedIds[currentIdx];
+      if (!scenarios[id] && !isGeneratingScenario) fetchScenario(id);
+      else if (scenarios[id] && !ttsAutoPlayedRef.current.has(id)) {
+        ttsAutoPlayedRef.current.add(id);
+        playTTS(buildTTSText(scenarios[id]));
       }
     }
-  }, [phase, currentIdx, selectedIds, scenarioError]);
+  }, [phase, isStarted, currentIdx, scenarios]);
 
-  // Auto-play TTS when scenario is ready
-  useEffect(() => {
-    if (phase === "INTERVIEW") {
-      const currentCompId = selectedIds[currentIdx];
-      const scenario = scenarios[currentCompId];
-      if (scenario && !isGeneratingScenario && !ttsAutoPlayedRef.current.has(currentCompId)) {
-        ttsAutoPlayedRef.current.add(currentCompId);
-        playTTS(buildTTSText(scenario));
-      }
-    }
-  }, [phase, currentIdx, scenarios, isGeneratingScenario]);
-
-  /* ─── SUBMIT / NAVIGATION ─────────────────────────────────── */
   const handleSubmitResponse = async (skip: boolean = false) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
-    
     stopRecording();
-    if (audioPlayerRef.current) {
-      audioPlayerRef.current.pause();
-      audioPlayerRef.current = null;
-    }
     setIsSpeakingManager(false);
-
     try {
-      const compId = selectedIds[currentIdx];
-      const comp = COMP_LIBRARY[compId];
-      const scenario = scenarios[compId];
-      const resPayload: any = skip ? { transcript: "" } : { ...currentResponse };
-
-      setFetchingScoreId(compId);
-
-      // --- BACKGROUND TASKS (Non-blocking) ---
-      // 1. Security Analysis
-      if (!skip && resPayload.transcript) {
-        callGenAI(securityAnalysisPrompt(resPayload.transcript), securitySchema).then(sec => {
-          setResponses(prev => ({ 
-            ...prev, 
-            [compId]: { ...prev[compId], security: sec } 
-          }));
-        }).catch(e => console.error("BG Security error:", e));
-      }
-
-      // 2. Video Upload
-      if (!skip && resPayload.videoBlob) {
-        const path = `recordings/${candidateName.replace(/\s/g, '_')}_${compId}_${Date.now()}.webm`;
-        uploadToSupabase(resPayload.videoBlob, path).then(url => {
-          if (url) {
-            setResponses(prev => ({ 
-              ...prev, 
-              [compId]: { ...prev[compId], videoUrl: url } 
-            }));
-          }
-        }).catch(e => console.error("BG Upload error:", e));
-      }
-
-      // Store initial response
-      setResponses(prev => ({ ...prev, [compId]: resPayload }));
-      
-      // --- CRITICAL TASK (Scoring) ---
-      try {
-        const score = await callGenAI(scoringPrompt(comp, scenario, resPayload, orgDNA), scoringSchema);
-        setScores(prev => ({ ...prev, [compId]: score }));
-      } catch (e) {
-        console.error("Scoring failed:", e);
-        // Fallback score so app doesn't hang
-        setScores(prev => ({ ...prev, [compId]: { score: 1, reasoning: "Evaluation failed due to technical error." } }));
-      }
-      
+      const id = selectedIds[currentIdx];
+      const payload: any = skip ? { transcript: "" } : { ...currentResponse };
+      setFetchingScoreId(id);
+      if (!skip && payload.transcript) callGenAI(securityAnalysisPrompt(payload.transcript), securitySchema).then(s => setResponses(p => ({ ...p, [id]: { ...p[id], security: s } })));
+      if (!skip && payload.videoBlob) uploadToSupabase(payload.videoBlob, `recordings/${id}_${Date.now()}.webm`).then(u => setResponses(p => ({ ...p, [id]: { ...p[id], videoUrl: u } })));
+      setResponses(p => ({ ...p, [id]: payload }));
+      const sc = await callGenAI(scoringPrompt(COMP_LIBRARY[id], scenarios[id], payload, orgDNA), scoringSchema);
+      setScores(p => ({ ...p, [id]: sc }));
       setFetchingScoreId(null);
-
-      // Move to next step IMMEDIATELY after scoring
       if (currentIdx < selectedIds.length - 1) {
         setCurrentIdx(i => i + 1);
         setCurrentResponse({ transcript: "" });
-        setScenarioError(null);
-      } else {
-        setPhase("REPORT_LOADING");
-      }
-    } catch (err) {
-      console.error("Critical submission error:", err);
-      alert("Submission encountered an error. Please try again.");
-    } finally {
-      setIsSubmitting(false);
-    }
+      } else setPhase("REPORT_LOADING");
+    } finally { setIsSubmitting(false); }
   };
 
   useEffect(() => {
-    if (phase === "REPORT_LOADING") {
-      const allScored = selectedIds.every(id => scores[id] !== undefined);
-      if (allScored && !fetchingScoreId) generateReport();
-    }
-  }, [phase, scores, fetchingScoreId]);
+    if (phase === "REPORT_LOADING" && selectedIds.every(id => scores[id] !== undefined)) generateReport();
+  }, [phase, scores]);
 
   const generateReport = async () => {
-    const compResults = selectedIds.map(id => ({
-      comp: COMP_LIBRARY[id],
-      scenario: scenarios[id],
-      response: responses[id],
-      scoreData: scores[id]
-    }));
-
-    const finalReportPromise = callGenAI(characterReportPrompt(roleTitle, candidateName, compResults, teamContext), reportSchema);
-
-    setIsGotEngineRunning(true);
-    let gotData = null;
-    try {
-      const gotSystemPrompt = `You are the Graph of Thought (GOT) Reasoning Engine.
-Your task is to analyze the candidate's interview responses across multiple competencies to detect BEHAVIORAL CONSISTENCY.
-Look for contradictions (e.g., high autonomy here, but high dependency there).
-Look for resonance (e.g., consistent calculated risk-taking).
-
-Return ONLY valid JSON with this schema:
-{
-  "consistency_score": 85,
-  "contradictions_found": ["issue 1", "issue 2"],
-  "resonance_patterns": ["pattern 1"],
-  "got_summary": "Detailed cross-competency breakdown"
-}`;
-
-      const res = await window.fetch("https://got-engine.vercel.app/api/proxy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider: "gemini",
-          model: "gemini-1.5-pro",
-          system: gotSystemPrompt,
-          user: JSON.stringify({ candidateName, roleTitle, industry, compResults }),
-          isJson: true
-        }),
-      });
-      if (res.ok) {
-        const d = await res.json();
-        if (d.text) gotData = JSON.parse(d.text);
-      }
-    } catch (e) {
-      console.error("Failed to hit GOT engine API:", e);
-    }
-    setIsGotEngineRunning(false);
-
-    const finalReport = await finalReportPromise;
-    if (gotData && finalReport) finalReport.got_consistency = gotData;
-    if (finalReport) finalReport.competency_details = compResults;
-
-    let savedId = null;
-    try {
-      if (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) {
-        const { getSupabase } = await import("../lib/supabase");
-        const supabase = getSupabase();
-        savedId = crypto.randomUUID();
-        const { error } = await supabase.from("bbi_reports").insert({
-          id: savedId,
-          candidate_name: candidateName,
-          role_title: roleTitle,
-          industry,
-          overall_score: finalReport?.overall_score,
-          fit_signal: finalReport?.fit_signal,
-          executive_summary: finalReport?.executive_summary,
-          got_consistency_score: gotData?.consistency_score,
-          integrity_warnings: focusLossCount,
-          full_report_json: { ...finalReport, focus_loss_count: focusLossCount },
-          created_at: new Date().toISOString()
-        });
-        if (error) { console.error("Supabase insert error:", error); savedId = null; }
-
-        // Update the assessment record as completed
-        if (isCandidateView && token && savedId) {
-          await supabase
-            .from('bbi_assessments')
-            .update({ 
-              status: 'completed', 
-              report_id: savedId 
-            })
-            .eq('token', token);
-        }
-      }
-    } catch (err) {
-      console.error("Supabase saving failed:", err);
-    }
-
-    setReport({ ...finalReport, _dbId: savedId });
+    const res = selectedIds.map(id => ({ comp: COMP_LIBRARY[id], scenario: scenarios[id], response: responses[id], scoreData: scores[id] }));
+    const rep = await callGenAI(characterReportPrompt(roleTitle, candidateName, res, teamContext), reportSchema);
+    const { getSupabase } = await import("../lib/supabase");
+    const supabase = getSupabase();
+    const sid = crypto.randomUUID();
+    await supabase.from("bbi_reports").insert({ id: sid, candidate_name: candidateName, role_title: roleTitle, industry, overall_score: rep.overall_score, fit_signal: rep.fit_signal, executive_summary: rep.executive_summary, integrity_warnings: focusLossCount, full_report_json: { ...rep, compResults: res }, created_at: new Date().toISOString() });
+    if (isCandidateView && token) await supabase.from('bbi_assessments').update({ status: 'completed', report_id: sid }).eq('token', token);
+    setReport({ ...rep, _dbId: sid, compResults: res });
     setPhase("REPORT_VIEW");
   };
 
-  const restartSimulation = () => {
-    stopRecording();
-    if (audioPlayerRef.current) { audioPlayerRef.current.pause(); audioPlayerRef.current = null; }
-    ttsAutoPlayedRef.current.clear();
-    setPhase("SETUP");
-    setCurrentIdx(0);
-    setScenarios({});
-    setResponses({});
-    setScores({});
-    setReport(null);
-    setCurrentResponse({ transcript: "" });
-    setScenarioError(null);
-  };
-
-  // Camera
   useEffect(() => {
-    if (phase === "INTERVIEW") {
-      navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-        .then(stream => setCameraStream(stream))
-        .catch(err => console.error("Camera access denied", err));
-    } else {
-      if (cameraStream) {
-        cameraStream.getTracks().forEach(t => t.stop());
-        setCameraStream(null);
-      }
-    }
-    return () => { if (cameraStream) cameraStream.getTracks().forEach(t => t.stop()); };
-  }, [phase]);
+    if (videoRef.current && cameraStream) videoRef.current.srcObject = cameraStream;
+  }, [cameraStream, phase]);
 
-  useEffect(() => {
-    if (videoRef.current && cameraStream) {
-      videoRef.current.srcObject = cameraStream;
-      videoRef.current.play().catch(e => console.error("Video play failed", e));
-    }
-  }, [cameraStream, phase, currentIdx, isGeneratingScenario]);
-
-  /* ─── RECORDING STATUS TEXT ────────────────────────────────── */
-  const recordingStatusText = () => {
-    if (isSpeakingManager) return "Manager speaking...";
-    if (isSarvamProcessing) return "Transcribing your answer...";
-    if (isRecording) return "Recording — speak your answer, then stop (auto-stops in 30s)";
-    return "";
-  };
-
-  /* ─── RENDER ──────────────────────────────────────────────── */
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">
-          <motion.div
-            className="brand-mark"
-            whileHover={{ scale: 1.05 }}
-            transition={{ type: "spring", stiffness: 400 }}
-          >B</motion.div>
-          <div>
-            <div className="brand-name">BBI Simulator</div>
-            <div className="brand-sub">AI-Assisted Behavioral Assessment</div>
-          </div>
-        </div>
+        <div className="brand"> <div className="brand-mark">B</div> <div className="brand-name">BBI Simulator</div> </div>
         <div className="phase-pills">
           <div className={`ppill ${phase === "SETUP" ? "active" : "done"}`}>Setup</div>
-          <div className={`ppill ${phase === "INTERVIEW" ? "active" : phase === "REPORT_LOADING" || phase === "REPORT_VIEW" ? "done" : ""}`}>Interview</div>
-          <div className={`ppill ${phase === "REPORT_LOADING" || phase === "REPORT_VIEW" ? "active" : ""}`}>Report</div>
+          <div className={`ppill ${phase === "INTERVIEW" ? "active" : "done"}`}>Interview</div>
+          <div className={`ppill ${phase === "REPORT_VIEW" ? "active" : ""}`}>Report</div>
         </div>
       </header>
-
       <main className="main">
-        {/* ─── CANDIDATE ENTRY GATE ─── */}
         {isCandidateView && phase === "INTERVIEW" && !isStarted && (
-          <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-[var(--bg)]">
-            <motion.div 
-              className="card w-full max-w-xl p-10 text-center border-[var(--gold)]"
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-            >
-              <div className="w-20 h-20 rounded-full bg-[var(--gold)]/10 text-[var(--gold)] flex items-center justify-center mx-auto mb-8 border border-[var(--gold)]/20 shadow-[0_0_30px_rgba(201,149,58,0.15)]">
-                <Play size={40} fill="var(--gold)" />
-              </div>
-              <h1 className="text-2xl font-bold mb-4 text-white uppercase tracking-tight">Ready to Begin?</h1>
-              <p className="text-[var(--muted)] text-sm mb-8 leading-relaxed">
-                Hi {candidateName}, you've been invited to an AI-driven behavioral simulation for the <strong>{roleTitle}</strong> role.
-              </p>
-              
-              <div className="space-y-4 mb-10 text-left bg-black/40 p-5 rounded-lg border border-[var(--br)]">
-                <div className="flex gap-3 items-start text-xs">
-                  <div className="w-5 h-5 rounded bg-[var(--green)]/10 text-[var(--green)] flex items-center justify-center shrink-0 mt-0.5">✓</div>
-                  <p className="text-[var(--text)]">Enable <strong>Camera & Mic</strong> when prompted.</p>
-                </div>
-                <div className="flex gap-3 items-start text-xs">
-                  <div className="w-5 h-5 rounded bg-[var(--green)]/10 text-[var(--green)] flex items-center justify-center shrink-0 mt-0.5">✓</div>
-                  <p className="text-[var(--text)]">Ensure you are in a <strong>Quiet Environment</strong>.</p>
-                </div>
-                <div className="flex gap-3 items-start text-xs">
-                  <div className="w-5 h-5 rounded bg-[var(--green)]/10 text-[var(--green)] flex items-center justify-center shrink-0 mt-0.5">✓</div>
-                  <p className="text-[var(--text)]"><strong>Virtual Proctoring</strong> is active (tab-switching is logged).</p>
-                </div>
-              </div>
-
-              <motion.button 
-                className="btn btn-gold btn-full h-14 text-lg"
-                onClick={() => {
-                  setIsStarted(true);
-                  // Trigger initial scenario fetch/play
-                  const currentCompId = selectedIds[currentIdx];
-                  const scenario = scenarios[currentCompId];
-                  if (scenario) playTTS(buildTTSText(scenario));
-                }}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                Start Assessment Now
-              </motion.button>
-            </motion.div>
+          <div className="fixed inset-0 z-[600] flex items-center justify-center bg-[var(--bg)] p-4">
+            <div className="card w-full max-w-lg p-10 text-center">
+              <Play size={40} className="mx-auto mb-6 text-[var(--gold)]" />
+              <h1 className="text-2xl font-bold mb-4">Ready to Begin?</h1>
+              <p className="mb-8 text-sm text-[var(--muted)]">Welcome {candidateName}. This is your behavioral assessment.</p>
+              <button className="btn btn-gold btn-full h-14" onClick={async () => { if (await requestPermissions()) setIsStarted(true); }}>Start Assessment Now</button>
+              {permissionError && <p className="text-red-400 text-xs mt-4">{permissionError}</p>}
+            </div>
           </div>
         )}
-
         <AnimatePresence mode="wait">
-
-          {/* ─── SETUP PHASE ──────────────────────────────────── */}
           {phase === "SETUP" && (
-            <motion.div
-              key="setup"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ duration: 0.35, ease: "easeOut" }}
-            >
-              <div className="sh">
-                <h1>Session Configuration</h1>
-                <p>Configure the assessment parameters and select the behavioral competencies you wish to evaluate.</p>
-              </div>
+            <motion.div key="setup" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
               <div className="g2">
-                <div className="card h-fit">
-                  <div className="card-hd">
-                    <h3>Candidate Details</h3>
+                <div className="card p-6">
+                  <GlowInput label="Candidate Name" value={candidateName} onChange={setCandidateName} />
+                  <GlowInput label="Candidate Email" value={candidateEmail} onChange={setCandidateEmail} />
+                  <GlowInput label="Role" value={roleTitle} onChange={setRoleTitle} />
+                  <div className="fgrp">
+                    <label className="flabel">Deadline (TAT)</label>
+                    <input type="datetime-local" className="finput" style={{ colorScheme: "dark" }} value={deadline} onChange={e => setDeadline(e.target.value)} />
                   </div>
-                  <div className="card-body">
-                  <GlowInput label="Candidate Name" value={candidateName} onChange={setCandidateName} placeholder="e.g. Jane Doe" />
-                  <GlowInput label="Candidate Email" value={candidateEmail} onChange={setCandidateEmail} placeholder="e.g. jane@example.com" />
-                  <GlowInput label="Role Assessed For" value={roleTitle} onChange={setRoleTitle} placeholder="e.g. Senior Director of Product" />
-
-                    {/* ── TURNAROUND TIME (TAT) ── */}
-                    <div className="fgrp">
-                      <label className="flabel" style={{ color: "var(--amber)" }}>
-                        Assessment Deadline (TAT)
-                      </label>
-                      <input 
-                        type="datetime-local" 
-                        className="finput bg-[#0a0d14] cursor-pointer" 
-                        style={{ colorScheme: "dark" }}
-                        value={deadline}
-                        onChange={e => setDeadline(e.target.value)}
-                      />
-                      <p className="text-[9px] text-[var(--dim)] mt-1.5 leading-relaxed">
-                        Select date and time (AM/PM) for assessment expiry.
-                      </p>
-                    </div>
-                    {/* ── HIRING MANAGER PERSONALIZATION ── */}
-                    <div className="fgrp">
-                      <label className="flabel mt-1" style={{ color: "var(--muted)" }}>
-                        Hiring Manager <span className="text-[9px] opacity-50 normal-case font-normal ml-1">optional — personalizes the interview</span>
-                      </label>
-                      <div className="flex items-center gap-3">
-                        {/* Photo preview / upload */}
-                        <label className="cursor-pointer flex-shrink-0 group" title="Upload manager photo">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="sr-only"
-                            onChange={e => {
-                              const file = e.target.files?.[0];
-                              if (!file) return;
-                              const reader = new FileReader();
-                              reader.onload = ev => setManagerPhoto(ev.target?.result as string);
-                              reader.readAsDataURL(file);
-                            }}
-                          />
-                          <div className="relative w-14 h-14 rounded-full overflow-hidden border-2 border-dashed border-[var(--br2)] group-hover:border-[var(--gold)] transition-colors duration-200">
-                            {managerPhoto ? (
-                              <img src={managerPhoto} alt="Manager" className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex flex-col items-center justify-center bg-[var(--s2)]">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--dim)" strokeWidth="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                                <span className="text-[8px] text-[var(--dim)] mt-0.5 group-hover:text-[var(--gold)] transition-colors">Photo</span>
-                              </div>
-                            )}
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-full">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                            </div>
-                          </div>
-                        </label>
-                        {/* Name field */}
-                        <div className="flex-1">
-                          <input
-                            type="text"
-                            className="finput text-[12px] w-full"
-                            placeholder="Manager name (e.g. Sarah Chen)"
-                            value={managerName}
-                            onChange={e => setManagerName(e.target.value)}
-                            style={{ background: "#0a0d14" }}
-                          />
-                          {managerPhoto && (
-                            <button
-                              type="button"
-                              onClick={() => { setManagerPhoto(""); }}
-                              className="text-[10px] text-[var(--dim)] hover:text-[var(--red)] mt-1.5 flex items-center gap-1 transition-colors"
-                            >
-                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                              Remove photo
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="fgrp">
-                      <motion.label className="flabel block">Industry Sector</motion.label>
-                      <CustomSelect value={industry} onChange={setIndustry} options={INDUSTRIES} placeholder="Select industry..." />
-                    </div>
-                    {/* ── DNA CARD PICKER (Layer 1) ── */}
-                    <div className="fgrp">
-                      <label className="flabel mt-2" style={{ color: "var(--gold)" }}>
-                        Org-Specific Behavioral DNA
-                        <span className="ml-2 text-[9px] font-normal opacity-60 normal-case tracking-normal">Vision Layer 1</span>
-                      </label>
-                      {/* Category pill row */}
-                      <div className="flex gap-2 flex-wrap mb-3">
-                        {filteredDNA.map(c => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => {
-                              setDnaCategory(c.id);
-                              setDnaOption(c.options[0].id);
-                              setOrgDNA(c.options[0].value);
-                            }}
-                            className="text-[10px] font-bold uppercase tracking-wide px-3 py-1.5 rounded-full border transition-all"
-                            style={dnaCategory === c.id
-                              ? { borderColor: "var(--gold)", color: "var(--gold)", background: "rgba(201,149,58,0.12)" }
-                              : { borderColor: "var(--br)", color: "var(--dim)", background: "transparent" }}
-                          >{c.label}</button>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => { setDnaCategory("other"); setOrgDNA(""); }}
-                          className="text-[10px] font-bold uppercase tracking-wide px-3 py-1.5 rounded-full border transition-all"
-                          style={dnaCategory === "other"
-                            ? { borderColor: "var(--gold)", color: "var(--gold)", background: "rgba(201,149,58,0.12)" }
-                            : { borderColor: "var(--br)", color: "var(--dim)", background: "transparent" }}
-                        >Custom</button>
-                      </div>
-
-                      {/* Option cards */}
-                      {dnaCategory !== "other" && (() => {
-                        const cat = filteredDNA.find(c => c.id === dnaCategory);
-                        return cat ? (
-                          <div className="grid grid-cols-2 gap-2 mb-3">
-                            {cat.options.map(opt => {
-                              const sel = dnaOption === opt.id;
-                              return (
-                                <motion.button
-                                  key={opt.id}
-                                  type="button"
-                                  onClick={() => { setDnaOption(opt.id); setOrgDNA(opt.value); }}
-                                  whileTap={{ scale: 0.97 }}
-                                  className="text-left p-3 rounded-lg border text-[11px] font-semibold transition-all leading-snug"
-                                  style={sel
-                                    ? { borderColor: "var(--gold)", color: "var(--gold)", background: "rgba(201,149,58,0.1)" }
-                                    : { borderColor: "var(--br)", color: "var(--muted)", background: "rgba(17,21,32,0.5)" }}
-                                >
-                                  {sel && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--gold)] mr-1.5 mb-0.5" />}
-                                  {opt.label}
-                                </motion.button>
-                              );
-                            })}
-                          </div>
-                        ) : null;
-                      })()}
-
-                      {/* Selected preview / custom textarea */}
-                      <AnimatePresence mode="wait">
-                        <motion.textarea
-                          key={dnaCategory + dnaOption}
-                          initial={{ opacity: 0, y: 4 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="finput bg-[#0a0d14] text-xs"
-                          style={{ minHeight: 72, resize: "vertical" }}
-                          placeholder={dnaCategory === "other" ? "Describe the behavioral traits of your top 10% performers..." : ""}
-                          value={orgDNA}
-                          onChange={e => setOrgDNA(e.target.value)}
-                          readOnly={dnaCategory !== "other" && dnaOption !== "custom"}
-                        />
-                      </AnimatePresence>
-                    </div>
-
-                    {/* ── TEAM DYNAMIC CARD PICKER (Layer 4) ── */}
-                    <div className="fgrp">
-                      <label className="flabel mt-2" style={{ color: "var(--blue-light)" }}>
-                        Existing Team Dynamic
-                        <span className="ml-2 text-[9px] font-normal opacity-60 normal-case tracking-normal">Vision Layer 4</span>
-                      </label>
-                      {/* Category pill row */}
-                      <div className="flex gap-2 flex-wrap mb-3">
-                        {TEAM_DYNAMIC_TEMPLATES.map(c => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => {
-                              setTeamCategory(c.id);
-                              setTeamOption(c.options[0].id);
-                              setTeamContext(c.options[0].value);
-                            }}
-                            className="text-[10px] font-bold uppercase tracking-wide px-3 py-1.5 rounded-full border transition-all"
-                            style={teamCategory === c.id
-                              ? { borderColor: "var(--blue-light)", color: "var(--blue-light)", background: "rgba(77,166,255,0.1)" }
-                              : { borderColor: "var(--br)", color: "var(--dim)", background: "transparent" }}
-                          >{c.label}</button>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => { setTeamCategory("other"); setTeamContext(""); }}
-                          className="text-[10px] font-bold uppercase tracking-wide px-3 py-1.5 rounded-full border transition-all"
-                          style={teamCategory === "other"
-                            ? { borderColor: "var(--blue-light)", color: "var(--blue-light)", background: "rgba(77,166,255,0.1)" }
-                            : { borderColor: "var(--br)", color: "var(--dim)", background: "transparent" }}
-                        >Custom</button>
-                      </div>
-
-                      {/* Option cards */}
-                      {teamCategory !== "other" && (() => {
-                        const cat = TEAM_DYNAMIC_TEMPLATES.find(c => c.id === teamCategory);
-                        return cat ? (
-                          <div className="grid grid-cols-2 gap-2 mb-3">
-                            {cat.options.map(opt => {
-                              const sel = teamOption === opt.id;
-                              return (
-                                <motion.button
-                                  key={opt.id}
-                                  type="button"
-                                  onClick={() => { setTeamOption(opt.id); setTeamContext(opt.value); }}
-                                  whileTap={{ scale: 0.97 }}
-                                  className="text-left p-3 rounded-lg border text-[11px] font-semibold transition-all leading-snug"
-                                  style={sel
-                                    ? { borderColor: "var(--blue-light)", color: "var(--blue-light)", background: "rgba(77,166,255,0.08)" }
-                                    : { borderColor: "var(--br)", color: "var(--muted)", background: "rgba(17,21,32,0.5)" }}
-                                >
-                                  {sel && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--blue-light)] mr-1.5 mb-0.5" />}
-                                  {opt.label}
-                                </motion.button>
-                              );
-                            })}
-                          </div>
-                        ) : null;
-                      })()}
-
-                      {/* Selected preview / custom textarea */}
-                      <AnimatePresence mode="wait">
-                        <motion.textarea
-                          key={teamCategory + teamOption}
-                          initial={{ opacity: 0, y: 4 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="finput bg-[#0a0d14] text-xs"
-                          style={{ minHeight: 72, resize: "vertical" }}
-                          placeholder={teamCategory === "other" ? "Describe the existing team the candidate will join..." : ""}
-                          value={teamContext}
-                          onChange={e => setTeamContext(e.target.value)}
-                          readOnly={teamCategory !== "other" && teamOption !== "custom"}
-                        />
-                      </AnimatePresence>
-                    </div>
-                    <div className="mt-8">
-                      <motion.button
-                        className="btn btn-gold btn-full"
-                        onClick={publishAsAssessment}
-                        disabled={!candidateName || !roleTitle || selectedIds.length === 0 || !industry || !candidateEmail || isAssessmentCreating}
-                        whileHover={{ scale: 1.01 }}
-                        whileTap={{ scale: 0.98 }}
-                      >
-                        {isAssessmentCreating ? "Creating..." : "Create & Publish Assessment"} <ChevronRight size={16} />
-                      </motion.button>
-                    </div>
-                  </div>
+                  <CustomSelect value={industry} onChange={setIndustry} options={INDUSTRIES} label="Industry" />
+                  <button className="btn btn-gold btn-full mt-6" onClick={publishAsAssessment} disabled={isAssessmentCreating}>Create & Publish Assessment</button>
                 </div>
-
-                <div>
-                  <div className="catfilter overflow-x-auto pb-2 flex-nowrap whitespace-nowrap">
-                    <button className={`cfbtn ${catFilter === "all" ? "fa" : ""}`} onClick={() => setCatFilter("all")}>All</button>
-                    <button className={`cfbtn ${catFilter === "GCC Leadership" ? "fb" : ""}`} onClick={() => setCatFilter("GCC Leadership")}>GCC</button>
-                    <button className={`cfbtn ${catFilter === "BFSI & FinTech" ? "fb" : ""}`} onClick={() => setCatFilter("BFSI & FinTech")}>BFSI</button>
-                    <button className={`cfbtn ${catFilter === "Product & Engineering" ? "fc" : ""}`} onClick={() => setCatFilter("Product & Engineering")}>Prod/Eng</button>
-                    <button className={`cfbtn ${catFilter === "BPO & Mid-to-Large Ent." ? "fd" : ""}`} onClick={() => setCatFilter("BPO & Mid-to-Large Ent.")}>Enterprise</button>
-                    <button className={`cfbtn ${catFilter === "Healthcare & Life Sciences" ? "fa" : ""}`} onClick={() => setCatFilter("Healthcare & Life Sciences")}>Healthcare</button>
-                    <button className={`cfbtn ${catFilter === "Sales & Commercial" ? "fb" : ""}`} onClick={() => setCatFilter("Sales & Commercial")}>Sales</button>
-                    <button className={`cfbtn ${catFilter === "Digital & Technology" ? "fc" : ""}`} onClick={() => setCatFilter("Digital & Technology")}>Digital</button>
-                    <button className={`cfbtn ${catFilter === "Universal" ? "fd" : ""}`} onClick={() => setCatFilter("Universal")}>Universal</button>
-                  </div>
-                  <div className="ccount flex items-center gap-3">
-                    <span>Selected:</span>
-                    <motion.strong
-                      key={selectedIds.length}
-                      initial={{ scale: 1.5, color: "var(--gold3)" }}
-                      animate={{ scale: 1, color: "var(--gold)" }}
-                      transition={{ type: "spring", stiffness: 400, damping: 15 }}
-                    >{selectedIds.length}</motion.strong>
-                    <span>competencies</span>
-                  </div>
-                  <div className="g4">
-                    {filteredList.map((comp, index) => {
-                      const sel = selectedIds.includes(comp.id);
-                      const meta = CAT_META[comp.category] || { bg: "", accent: "" };
-                      return (
-                        <CompCard
-                          key={comp.id}
-                          comp={comp}
-                          sel={sel}
-                          meta={meta}
-                          index={index}
-                          onSelect={handleSelect}
-                        />
-                      );
-                    })}
-                  </div>
+                <div className="g4">
+                  {Object.values(COMP_LIBRARY).map((c, i) => <CompCard key={c.id} comp={c} index={i} sel={selectedIds.includes(c.id)} meta={CAT_META[c.category] || {}} onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])} />)}
                 </div>
               </div>
             </motion.div>
           )}
-
-          {/* ─── INTERVIEW PHASE ──────────────────────────────── */}
-          {phase === "INTERVIEW" && (
-            <motion.div
-              key="interview"
-              initial={{ opacity: 0, x: 30 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -30 }}
-              transition={{ duration: 0.35, ease: "easeOut" }}
-            >
-              {!isCandidateView ? (
-                /* Safety redirect for Admins */
-                <div className="card p-12 text-center">
-                  <p className="text-[var(--gold)] font-bold mb-4 uppercase tracking-widest">Admin Redirect</p>
-                  <p className="text-xs text-[var(--muted)] mb-6">You are not supposed to take the assessment. Redirecting to your dashboard...</p>
-                  <button className="btn btn-outline" onClick={() => setPhase("PUBLISH_DASHBOARD")}>Go to Dashboard</button>
-                </div>
-              ) : (
-                <>
-                  <div className="sh flex justify-between items-end">
+          {phase === "INTERVIEW" && isStarted && (
+            <motion.div key="interview" className="grid grid-cols-2 gap-8">
+              <div className="space-y-4">
+                <div className="card p-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-[var(--gold)]">
+                      <img src={managerPhoto || "https://images.unsplash.com/photo-1560250097-0b93528c311a"} className="w-full h-full object-cover" />
+                    </div>
                     <div>
-                      <h1>Simulation in Progress</h1>
-                      <p>Scenario {currentIdx + 1} of {selectedIds.length} — Assessing {COMP_LIBRARY[selectedIds[currentIdx]]?.label || "Competency"}</p>
+                      <p className="font-bold text-[var(--gold)]">{managerName || "Manager"}</p>
+                      <div className="flex gap-2 mt-2">
+                         {isSpeakingManager && <button className="btn btn-sm btn-red-ghost" onClick={() => { audioPlayerRef.current?.pause(); setIsSpeakingManager(false); }}><MicOff size={10} /> Stop</button>}
+                         <button className="btn btn-sm btn-outline" onClick={() => playTTS(buildTTSText(scenarios[selectedIds[currentIdx]]))}>Replay</button>
+                      </div>
+                    </div>
+                    <div className="w-24 h-24 rounded-lg overflow-hidden border border-[var(--br)] ml-auto">
+                       <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover -scale-x-100" />
                     </div>
                   </div>
-
-              {/* ── Step progress bar ── */}
-              <div className="mb-6">
-                <div className="flex items-center gap-1.5 mb-2">
-                  {selectedIds.map((id, i) => {
-                    const done = i < currentIdx;
-                    const active = i === currentIdx;
-                    const comp = COMP_LIBRARY[id];
-                    const meta = CAT_META[comp?.category] || { accent: "var(--gold)" };
-                    return (
-                      <motion.div
-                        key={id}
-                        title={comp?.label}
-                        className="relative flex-1 h-1.5 rounded-full overflow-hidden cursor-default"
-                        style={{ background: "var(--s3)" }}
-                      >
-                        {(done || active) && (
-                          <motion.div
-                            className="absolute inset-y-0 left-0 rounded-full"
-                            style={{ background: done ? "var(--green)" : meta.accent }}
-                            initial={{ width: 0 }}
-                            animate={{ width: done ? "100%" : active ? "60%" : "0%" }}
-                            transition={{ duration: 0.5, ease: "easeOut" }}
-                          />
-                        )}
-                        {active && (
-                          <motion.div
-                            className="absolute inset-y-0 right-0 w-4 rounded-full"
-                            style={{ background: `linear-gradient(to left, transparent, ${meta.accent}66)` }}
-                            animate={{ opacity: [0.4, 1, 0.4] }}
-                            transition={{ repeat: Infinity, duration: 1.4 }}
-                          />
-                        )}
-                      </motion.div>
-                    );
-                  })}
+                  {isRecording && <div className="mt-4"><WaveformBars /></div>}
                 </div>
-                <div className="flex items-center gap-2">
-                  {selectedIds.map((id, i) => {
-                    const done = scores[id] !== undefined;
-                    const active = i === currentIdx;
-                    const comp = COMP_LIBRARY[id];
-                    const meta = CAT_META[comp?.category] || { accent: "var(--gold)" };
-                    return (
-                      <motion.div
-                        key={id}
-                        className="flex-1 flex justify-center"
-                        initial={false}
-                      >
-                        <motion.div
-                          className="w-2 h-2 rounded-full"
-                          animate={{
-                            scale: active ? [1, 1.4, 1] : 1,
-                            background: done ? "var(--green)" : active ? meta.accent : "var(--s4)",
-                            boxShadow: active ? `0 0 8px ${meta.accent}88` : "none",
-                          }}
-                          transition={{ repeat: active ? Infinity : 0, duration: 1.2 }}
-                        />
-                      </motion.div>
-                    );
-                  })}
+                <div className="card p-6">
+                  <textarea className="finput w-full h-40" value={currentResponse.transcript} onChange={e => setCurrentResponse({ ...currentResponse, transcript: e.target.value })} placeholder="Your answer..." />
+                  <div className="flex gap-4 mt-4">
+                    <button className="btn btn-ghost" onClick={() => stopRecording()}>{isRecording ? "Stop" : "Speak"}</button>
+                    <button className="btn btn-gold flex-1" onClick={() => handleSubmitResponse(false)} disabled={isSubmitting}>{isSubmitting ? "Processing..." : "Submit & Next"}</button>
+                  </div>
                 </div>
               </div>
-
-              {scenarioError ? (
-                <motion.div className="card" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                  <div className="loading-wrap gap-4">
-                    <motion.div
-                      className="w-14 h-14 rounded-full flex items-center justify-center border-2 border-[var(--red)] bg-[rgba(232,85,85,0.08)]"
-                      animate={{ scale: [1, 1.05, 1] }}
-                      transition={{ repeat: Infinity, duration: 2 }}
-                    >
-                      <span className="text-[var(--red)] text-2xl font-bold">!</span>
-                    </motion.div>
-                    <p className="text-[var(--red)] font-semibold text-sm text-center max-w-[480px]">Scenario generation failed</p>
-                    <p className="text-[var(--muted)] text-xs text-center max-w-[480px] leading-relaxed">{scenarioError}</p>
-                    <div className="flex gap-3 mt-2">
-                      <motion.button
-                        className="btn btn-gold"
-                        onClick={() => { setScenarioError(null); fetchScenario(selectedIds[currentIdx]); }}
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.97 }}
-                      >Retry</motion.button>
-                      <motion.button
-                        className="btn btn-ghost"
-                        onClick={restartSimulation}
-                        whileTap={{ scale: 0.97 }}
-                      >Back to Setup</motion.button>
-                    </div>
-                  </div>
-                </motion.div>
-              ) : isGeneratingScenario || !scenarios[selectedIds[currentIdx]] ? (
-                <motion.div
-                  className="card"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                >
-                  <div className="loading-wrap gap-5">
-                    <div style={{ position: "relative", width: 56, height: 56 }}>
-                      <motion.div
-                        style={{
-                          position: "absolute", inset: 0, borderRadius: "50%",
-                          border: "3px solid var(--s3)", borderTopColor: "var(--gold)"
-                        }}
-                        animate={{ rotate: 360 }}
-                        transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-                      />
-                      <motion.div
-                        style={{
-                          position: "absolute", inset: 6, borderRadius: "50%",
-                          border: "2px solid transparent", borderTopColor: "var(--gold3)", opacity: 0.5
-                        }}
-                        animate={{ rotate: -360 }}
-                        transition={{ repeat: Infinity, duration: 1.4, ease: "linear" }}
-                      />
-                    </div>
-                    <div className="text-center">
-                      <motion.p
-                        className="text-[var(--gold)] font-semibold text-sm"
-                        animate={{ opacity: [1, 0.5, 1] }}
-                        transition={{ repeat: Infinity, duration: 1.8 }}
-                      >Generating immersive scenario...</motion.p>
-                      <p className="text-[var(--dim)] text-xs mt-1">Crafting a {COMP_LIBRARY[selectedIds[currentIdx]]?.short || ""} scenario for {industry}</p>
-                    </div>
-                  </div>
-                </motion.div>
-              ) : (
-                <motion.div
-                  key={`scenario-${currentIdx}`}
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3 }}
-                  style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, alignItems: "start" }}
-                >
-                  {/* ══ LEFT COLUMN: Manager + Answer ══ */}
-                  <div className="flex flex-col gap-4">
-
-                    {/* Hiring Manager Card */}
-                    <div className="card">
-                      <div className="p-5 flex items-center gap-4 border-b border-[var(--br)]"
-                        style={{ background: "var(--s2)" }}>
-                        {/* Avatar */}
-                        <div className="relative flex-shrink-0">
-                          {isSpeakingManager && (
-                            <motion.div
-                              className="absolute rounded-full border-2 border-[var(--gold)]"
-                              style={{ inset: -4 }}
-                              animate={{ scale: [1, 1.12, 1], opacity: [0.8, 0.2, 0.8] }}
-                              transition={{ repeat: Infinity, duration: 1.5 }}
-                            />
-                          )}
-                          <div className={`w-20 h-20 rounded-full overflow-hidden border-2 transition-colors duration-500 ${isSpeakingManager ? "border-[var(--gold)] shadow-[0_0_20px_rgba(201,149,58,0.5)]" : "border-[var(--s3)]"}`}>
-                            <motion.img
-                              src={managerPhoto || "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=400&q=80"}
-                              alt={managerName || "Hiring Manager"}
-                              className="w-full h-full object-cover origin-bottom"
-                              animate={
-                                isSpeakingManager
-                                  ? { y: [0, -2, 0, -1, 0], rotate: [-1, 1, -1], scale: [1.02, 1.05, 1.02] }
-                                  : isRecording
-                                    ? { rotate: [0, -2, 0], y: [0, 1, 0] }
-                                    : { y: [0, -1, 0], scale: [1, 1.01, 1] }
-                              }
-                              transition={{ repeat: Infinity, duration: isSpeakingManager ? 2 : isRecording ? 4 : 6, ease: "easeInOut" }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Name + Status */}
-                        <div className="flex-1 min-w-0">
-                          <div className="font-bold text-[14px] text-[var(--gold)] mb-0.5">
-                            {managerName || "Hiring Manager"}
-                          </div>
-                          {managerName && (
-                            <div className="text-[10px] text-[var(--dim)] mb-1 tracking-wide uppercase">Hiring Manager</div>
-                          )}
-                          <AnimatePresence mode="wait">
-                            {isSpeakingManager ? (
-                              <motion.div key="spk" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                                className="flex items-center gap-2">
-                                <motion.div className="w-2 h-2 rounded-full bg-[var(--gold)]"
-                                  animate={{ scale: [1, 1.4, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} />
-                                <span className="text-[11px] text-[var(--gold)]">Speaking...</span>
-                              </motion.div>
-                            ) : isRecording ? (
-                              <motion.div key="lst" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                                className="flex items-center gap-2">
-                                <motion.div className="w-2 h-2 rounded-full bg-[var(--red)]"
-                                  animate={{ scale: [1, 1.4, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} />
-                                <span className="text-[11px] text-[var(--red)]">Listening to you...</span>
-                              </motion.div>
-                            ) : (
-                              <motion.div key="idl" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                                className="flex items-center gap-2">
-                                <div className="w-2 h-2 rounded-full bg-[var(--green)]" />
-                                <span className="text-[11px] text-[var(--muted)]">Standing by</span>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                          <div className="flex items-center gap-2 mt-3">
-                            <motion.button
-                              className="btn btn-sm btn-outline"
-                              onClick={() => {
-                                const s = scenarios[selectedIds[currentIdx]];
-                                if (s) playTTS(buildTTSText(s));
-                              }}
-                              disabled={isSpeakingManager}
-                              whileTap={{ scale: 0.95 }}
-                            >
-                              <Play size={10} /> Replay Briefing
-                            </motion.button>
-
-                            {isSpeakingManager && (
-                              <motion.button
-                                className="btn btn-sm btn-red-ghost"
-                                onClick={() => {
-                                  if (audioPlayerRef.current) {
-                                    audioPlayerRef.current.pause();
-                                    audioPlayerRef.current = null;
-                                  }
-                                  setIsSpeakingManager(false);
-                                }}
-                                initial={{ opacity: 0, x: -10 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                whileTap={{ scale: 0.95 }}
-                              >
-                                <MicOff size={10} /> Stop Speaking
-                              </motion.button>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Camera feed */}
-                        <div className="flex-shrink-0 w-28 h-28 bg-black rounded-xl overflow-hidden relative border border-[var(--s3)]">
-                          <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform -scale-x-100" />
-                          <div className="absolute bottom-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[8px] text-white tracking-wide">YOU</div>
-                          {isRecording && (
-                            <motion.div className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[var(--red)]"
-                              animate={{ opacity: [1, 0.2, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} />
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Voice status bar */}
-                      <AnimatePresence>
-                        {(isRecording || isSpeakingManager || isSarvamProcessing) && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: "auto", opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            className="overflow-hidden border-b border-[var(--br)]"
-                          >
-                            <div className="px-5 py-2 flex items-center gap-3"
-                              style={{ background: isRecording ? "rgba(232,85,85,0.06)" : "rgba(201,149,58,0.06)" }}>
-                              {isRecording && <WaveformBars />}
-                              {(isSpeakingManager || isSarvamProcessing) && (
-                                <motion.div className="flex gap-1"
-                                  animate={{ opacity: [1, 0.4, 1] }} transition={{ repeat: Infinity, duration: 1.2 }}>
-                                  {[0,1,2].map(i => <div key={i} className="w-1.5 h-1.5 rounded-full bg-[var(--gold)]" />)}
-                                </motion.div>
-                              )}
-                              <span className="text-xs text-[var(--muted)]">{recordingStatusText()}</span>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-
-                    {/* Answer Card */}
-                    <div className="card">
-                      <div className="card-hd border-b border-[var(--br)]" style={{ background: "var(--s2)" }}>
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h3 className="!text-[13px] !text-[var(--text)] !mb-1">Your Spoken Answer</h3>
-                            <p className="text-[10px] text-[var(--dim)]">STAR method — Situation · Task · Action · Result</p>
-                          </div>
-                          <motion.button
-                            className={`btn btn-sm ${isRecording ? "btn-red-ghost" : "btn-ghost"}`}
-                            onClick={toggleRecording}
-                            disabled={isSpeakingManager || isSarvamProcessing}
-                            whileTap={{ scale: 0.95 }}
-                          >
-                            {isRecording ? <><Square size={12} /> Stop</> : <><Mic size={14} /> Speak</>}
-                          </motion.button>
-                        </div>
-                      </div>
-                      <div className="card-body flex flex-col gap-4">
-                        <textarea
-                          className="finput w-full resize-none bg-[var(--bg)] text-sm leading-relaxed"
-                          style={{ minHeight: 160 }}
-                          placeholder={
-                            isSpeakingManager ? "Manager is briefing you..."
-                            : isRecording ? "Recording... speak your answer."
-                            : isSarvamProcessing ? "Transcribing your response..."
-                            : "Your transcribed answer will appear here. You may also type directly."
-                          }
-                          value={currentResponse.transcript}
-                          onChange={e => setCurrentResponse({ transcript: e.target.value })}
-                          disabled={isRecording || isSarvamProcessing}
-                        />
-
-                        {/* STAR quick-ref */}
-                        <div className="grid grid-cols-4 gap-2">
-                          {[
-                            { l: "S", label: "Situation", tip: "Set the scene" },
-                            { l: "T", label: "Task", tip: "Your responsibility" },
-                            { l: "A", label: "Action", tip: "Steps you took" },
-                            { l: "R", label: "Result", tip: "Measurable outcome" },
-                          ].map(s => (
-                            <div key={s.l} className="rounded-lg p-2 text-center"
-                              style={{ background: "var(--s3)", border: "1px solid var(--br)" }}>
-                              <div className="text-[11px] font-bold text-[var(--gold)]">{s.l}</div>
-                              <div className="text-[10px] font-semibold text-[var(--text)] mt-0.5">{s.label}</div>
-                              <div className="text-[9px] text-[var(--dim)] mt-0.5">{s.tip}</div>
-                            </div>
-                          ))}
-                        </div>
-
-                        <div className="flex gap-3">
-                          <motion.button className="btn btn-ghost flex-1 justify-center"
-                            onClick={() => handleSubmitResponse(true)} whileTap={{ scale: 0.97 }}>
-                            Skip
-                          </motion.button>
-                          <motion.button className="btn btn-gold flex-[2] justify-center"
-                            onClick={() => handleSubmitResponse(false)}
-                            disabled={isSubmitting || isSarvamProcessing}
-                            whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.97 }}>
-                            {isSubmitting ? "Processing..." : "Submit & Next"} <ChevronRight size={16} />
-                          </motion.button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* ══ RIGHT COLUMN: Scenario + Competency ══ */}
-                  <div className="flex flex-col gap-4">
-
-                    {/* Scenario Card */}
-                    <div className="card lockdown" 
-                         onContextMenu={e => e.preventDefault()}
-                         onCopy={e => e.preventDefault()}
-                         onPaste={e => e.preventDefault()}>
-                      <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--br)]"
-                        style={{ background: "var(--bg)" }}>
-                        <div className="flex items-center gap-2">
-                          <CompIcon
-                            iconName={COMP_LIBRARY[selectedIds[currentIdx]]?.icon || "Globe2"}
-                            category={COMP_LIBRARY[selectedIds[currentIdx]]?.category || "Universal"}
-                            size={14}
-                          />
-                          <span className="text-[12px] font-bold text-[var(--text)]">
-                            {scenarios[selectedIds[currentIdx]].title}
-                          </span>
-                        </div>
-                        <span className="text-[9px] font-bold px-2 py-1 rounded uppercase tracking-wide"
-                          style={{ background: "var(--s3)", color: "var(--muted)", border: "1px solid var(--br)" }}>
-                          {scenarios[selectedIds[currentIdx]].type}
-                        </span>
-                      </div>
-                      <div className="card-body flex flex-col gap-4" style={{ background: "var(--s2)" }}>
-                        <p className="text-sm text-[var(--text)] italic leading-relaxed">
-                          {scenarios[selectedIds[currentIdx]].scene_setter}
-                        </p>
-                        <div className="rounded-lg p-4 text-sm text-[var(--text)] leading-relaxed whitespace-pre-wrap"
-                          style={{ background: "var(--s3)", borderLeft: "3px solid var(--gold)" }}>
-                          {scenarios[selectedIds[currentIdx]].trigger_content}
-                        </div>
-                        <div className="rounded-lg p-4"
-                          style={{ background: "rgba(201,149,58,0.06)", border: "1px solid rgba(201,149,58,0.2)" }}>
-                          <p className="text-[10px] font-bold text-[var(--gold)] uppercase tracking-widest mb-2">Your Prompt</p>
-                          
-                          {/* EDITABLE CTA FOR ADMINS */}
-                          {!isCandidateView ? (
-                            <textarea
-                              className="finput bg-black/20 text-sm leading-relaxed border-none p-0 focus:ring-0 w-full"
-                              value={scenarios[selectedIds[currentIdx]].cta}
-                              onChange={e => updateScenarioField(selectedIds[currentIdx], 'cta', e.target.value)}
-                              rows={3}
-                            />
-                          ) : (
-                            <p className="text-sm text-[var(--text)] leading-relaxed">
-                              {scenarios[selectedIds[currentIdx]].cta}
-                            </p>
-                          )}
-                        </div>
-
-                        {/* PUBLISH BUTTON FOR ADMINS */}
-                        {!isCandidateView && (
-                          <div className="mt-4 flex gap-3">
-                            <button 
-                              className="btn btn-gold btn-full gap-2"
-                              onClick={publishAsAssessment}
-                              disabled={isAssessmentCreating}
-                            >
-                              <LinkIcon size={16} /> {isAssessmentCreating ? "Publishing..." : "Publish as Assessment Link"}
-                            </button>
-                            <button 
-                              className="btn btn-outline"
-                              onClick={() => fetchScenario(selectedIds[currentIdx])}
-                              title="Regenerate this specific scenario"
-                            >
-                              Regen
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Competency + BOS Card */}
-                    <div className="card">
-                      <div className="card-hd border-b border-[var(--br)]">
-                        <div className="flex items-center gap-2">
-                          <CompIcon
-                            iconName={COMP_LIBRARY[selectedIds[currentIdx]]?.icon || "Globe2"}
-                            category={COMP_LIBRARY[selectedIds[currentIdx]]?.category || "Universal"}
-                            size={13}
-                          />
-                          <h3 className="!mb-0">Competency — {COMP_LIBRARY[selectedIds[currentIdx]]?.label}</h3>
-                        </div>
-                      </div>
-                      <div className="card-body flex flex-col gap-4">
-                        <p className="text-xs text-[var(--muted)] leading-relaxed">
-                          {COMP_LIBRARY[selectedIds[currentIdx]].research}
-                        </p>
-                        {/* BOS scale */}
-                        <div>
-                          <p className="text-[10px] font-bold text-[var(--dim)] uppercase tracking-widest mb-3">
-                            Behavioral Observation Scale
-                          </p>
-                          <div className="flex flex-col gap-1.5">
-                            {[5,4,3,2,1].map(score => {
-                              const bos = COMP_LIBRARY[selectedIds[currentIdx]]?.bos?.[score];
-                              if (!bos) return null;
-                              const color = score === 5 ? "var(--green)" : score === 4 ? "var(--gold)" : score === 3 ? "#4da6ff" : score === 2 ? "var(--amber)" : "var(--red)";
-                              return (
-                                <div key={score} className="flex gap-2 items-start">
-                                  <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold mt-0.5"
-                                    style={{ background: `${color}18`, color, border: `1px solid ${color}44` }}>
-                                    {score}
-                                  </div>
-                                  <p className="text-[10px] text-[var(--dim)] leading-relaxed">{bos}</p>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </motion.div>
-          )}
-
-          {/* ─── REPORT LOADING ────────────────────────────────── */}
-          {phase === "REPORT_LOADING" && (
-            <motion.div
-              key="loading"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.3 }}
-            >
-              <div className="card my-12">
-                <div className="loading-wrap py-24">
-                  <motion.div
-                    className="spinner"
-                    animate={{ rotate: 360 }}
-                    transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-                  />
-                  <motion.p
-                    className="mt-6 text-[var(--gold)] font-medium text-lg"
-                    animate={{ opacity: [1, 0.6, 1] }}
-                    transition={{ repeat: Infinity, duration: 2 }}
-                  >
-                    Evaluating Candidate Responses...
-                  </motion.p>
-                  <p className="mt-2 text-[var(--muted)] text-sm">
-                    {fetchingScoreId
-                      ? "Scoring latest response..."
-                      : isGotEngineRunning
-                        ? "Running Graph of Thought (GOT) cross-competency analysis..."
-                        : "Synthesizing comprehensive character report..."}
-                  </p>
-                </div>
+              <div className="card p-6">
+                {scenarios[selectedIds[currentIdx]] ? (
+                  <>
+                    <h3 className="text-[var(--gold)] mb-4">{scenarios[selectedIds[currentIdx]].title}</h3>
+                    <p className="text-sm italic mb-4">{scenarios[selectedIds[currentIdx]].scene_setter}</p>
+                    <div className="bg-black/20 p-4 border-l-2 border-[var(--gold)] mb-4">{scenarios[selectedIds[currentIdx]].trigger_content}</div>
+                    <p className="text-[var(--gold)] font-bold">{scenarios[selectedIds[currentIdx]].cta}</p>
+                  </>
+                ) : <div className="spinner mx-auto" />}
               </div>
             </motion.div>
           )}
-
-          {/* ─── PUBLISH DASHBOARD (BBI.1) ────────────────────── */}
           {phase === "PUBLISH_DASHBOARD" && lastGeneratedAssessment && (
-            <motion.div
-              key="publish"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0 }}
-              className="card my-12"
-            >
-              <div className="card-hd flex justify-between items-center bg-[var(--s1)] border-b border-[var(--br)]">
-                <h3 className="flex items-center gap-2 text-[var(--gold)]">
-                  <Check size={16} /> Assessment Ready to Trigger
-                </h3>
-                <div className="flex gap-2">
-                   <button className="btn btn-sm btn-ghost" onClick={() => setPhase("SETUP")}>
-                     <Plus size={14} /> New Configuration
-                   </button>
-                   <a href="/admin" className="btn btn-sm btn-outline">
-                     <FileText size={14} /> View History
-                   </a>
-                </div>
-              </div>
-              <div className="card-body p-8">
-                <div className="flex flex-col md:flex-row justify-between items-center gap-8 bg-black/40 p-6 rounded-xl border border-[var(--br)]">
-                  <div className="flex items-center gap-4 flex-1">
-                    <div className="w-12 h-12 rounded-full bg-[var(--gold)]/10 text-[var(--gold)] flex items-center justify-center font-bold">
-                      <Clock size={24} />
-                    </div>
-                    <div>
-                      <div className="text-lg font-bold text-white">{lastGeneratedAssessment.candidate_name}</div>
-                      <div className="text-xs text-[var(--muted)]">{lastGeneratedAssessment.candidate_email}</div>
-                      <div className="text-[10px] text-[var(--dim)] uppercase font-bold mt-1">
-                        {lastGeneratedAssessment.role_title} • {lastGeneratedAssessment.industry}
-                      </div>
-                    </div>
-                    <div className="hidden md:block h-12 w-px bg-[var(--br)] mx-4" />
-                    <div>
-                      <div className="text-[10px] text-[var(--amber)] uppercase font-bold mb-1">TAT / Deadline</div>
-                      <div className="text-xs text-white">
-                        {lastGeneratedAssessment.deadline 
-                          ? new Date(lastGeneratedAssessment.deadline).toLocaleString() 
-                          : "No deadline set"}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <button className="btn btn-ghost gap-2" onClick={() => {
-                      const url = `${window.location.origin}/assess/${lastGeneratedAssessment.token}`;
-                      navigator.clipboard.writeText(url);
-                      alert("Assessment link copied!");
-                    }}>
-                      <LinkIcon size={16} /> Copy Link
-                    </button>
-                    <button className="btn btn-gold gap-2" onClick={() => {
-                      const url = `${window.location.origin}/assess/${lastGeneratedAssessment.token}`;
-                      const subject = encodeURIComponent(`Action Required: Behavioral Interview for ${lastGeneratedAssessment.role_title} Role`);
-                      const body = encodeURIComponent(`Hi ${lastGeneratedAssessment.candidate_name},\n\nYou have been invited to complete a behavioral assessment for the ${lastGeneratedAssessment.role_title} position.\n\nDeadline: ${lastGeneratedAssessment.deadline ? new Date(lastGeneratedAssessment.deadline).toLocaleString() : 'As soon as possible'}\n\nPlease use the following secure link to start the simulation:\n${url}\n\nGood luck!`);
-                      window.location.href = `mailto:${lastGeneratedAssessment.candidate_email}?subject=${subject}&body=${body}`;
-                    }}>
-                      <Mail size={16} /> Email Candidate
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-8">
-                   <div className="space-y-4">
-                      <h4 className="text-[10px] uppercase font-bold text-[var(--dim)] tracking-widest">Internal Details</h4>
-                      <div className="text-xs space-y-2">
-                        <div className="flex justify-between border-b border-[var(--br)] pb-1">
-                          <span className="text-[var(--muted)]">Status</span>
-                          <span className="text-[var(--gold)] font-bold uppercase">Pending Response</span>
-                        </div>
-                        <div className="flex justify-between border-b border-[var(--br)] pb-1">
-                          <span className="text-[var(--muted)]">Competencies</span>
-                          <span>{selectedIds.length} Selected</span>
-                        </div>
-                        <div className="flex justify-between border-b border-[var(--br)] pb-1">
-                          <span className="text-[var(--muted)]">Proctoring</span>
-                          <span className="text-[var(--green)]">Active</span>
-                        </div>
-                      </div>
-                   </div>
-                   <div className="bg-[var(--s3)] p-4 rounded-lg border border-[var(--br)] flex flex-col justify-center items-center text-center">
-                      <div className="text-[var(--dim)] mb-2"><Check size={32} opacity={0.2} /></div>
-                      <p className="text-xs text-[var(--muted)] leading-relaxed">
-                        Once the candidate completes the assessment, the result will automatically appear in your <strong>History</strong>.
-                      </p>
-                   </div>
-                </div>
-              </div>
+            <motion.div key="publish" className="card p-12 text-center max-w-2xl mx-auto">
+               <Check size={48} className="mx-auto mb-6 text-[var(--green)]" />
+               <h2 className="mb-4 text-white">Assessment Created</h2>
+               <p className="mb-8 text-[var(--muted)]">Send this link to {lastGeneratedAssessment.candidate_name}:</p>
+               <div className="flex gap-4 bg-black/40 p-4 rounded border border-[var(--br)] mb-8">
+                 <input readOnly className="finput flex-1 border-none" value={`${window.location.origin}/assess/${lastGeneratedAssessment.token}`} />
+                 <button className="btn btn-gold" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/assess/${lastGeneratedAssessment.token}`); alert("Copied"); }}>Copy</button>
+               </div>
+               <div className="flex gap-4 justify-center">
+                 <button className="btn btn-outline" onClick={() => setPhase("SETUP")}>New Assessment</button>
+                 <a href="/admin" className="btn btn-ghost">View History</a>
+               </div>
             </motion.div>
           )}
-
-          {/* ─── REPORT VIEW ───────────────────────────────────── */}
           {phase === "REPORT_VIEW" && report && (
-            <motion.div
-              key="report"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.4, ease: "easeOut" }}
-            >
+            <motion.div key="report">
               {isCandidateView ? (
-                <div className="card my-12 py-24 text-center">
-                  <motion.div
-                    className="w-20 h-20 rounded-full bg-[var(--green)]/10 text-[var(--green)] flex items-center justify-center mx-auto mb-6 border border-[var(--green)]/20"
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    transition={{ type: "spring", stiffness: 200, delay: 0.2 }}
-                  >
-                    <Check size={40} strokeWidth={3} />
-                  </motion.div>
-                  <h1 className="text-2xl font-bold mb-4">Assessment Completed</h1>
-                  <p className="text-[var(--muted)] text-sm max-w-md mx-auto leading-relaxed">
-                    Thank you, {candidateName}. Your behavioral simulation is complete and has been submitted to the hiring team for review. You may now close this window.
-                  </p>
+                <div className="card p-24 text-center">
+                  <Check size={40} className="mx-auto mb-6 text-[var(--green)]" />
+                  <h1 className="mb-4">Completed</h1>
+                  <p className="text-[var(--muted)]">Thank you {candidateName}. Your interview has been submitted.</p>
                 </div>
               ) : (
-                <>
-                  <div className="sh flex justify-between items-end">
-                    <div>
-                      <h1>Behavioral Character Profile</h1>
-                      <p>{candidateName} — Assessed for {roleTitle}</p>
-                    </div>
-                    <div className="flex items-center gap-6 text-right">
-                      <div>
-                        <div className="text-xs uppercase tracking-wide text-[var(--muted)]">Overall Score</div>
-                        <motion.div
-                          className="text-3xl font-bold font-['Syne'] text-[var(--gold)]"
-                          initial={{ opacity: 0, scale: 0.8 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
-                        >
-                          {report.overall_score?.toFixed(1)} <span className="text-base text-[var(--dim)]">/ 5.0</span>
-                        </motion.div>
-                      </div>
-                  <motion.button
-                    className="btn btn-outline h-fit no-print"
-                    onClick={() => window.print()}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.97 }}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
-                    Print Report
-                  </motion.button>
-                  <motion.button
-                    className="btn btn-outline h-fit no-print"
-                    onClick={restartSimulation}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.97 }}
-                  >New Session</motion.button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                <motion.div
-                  className="card md:col-span-2"
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.1 }}
-                >
-                  <div className="card-hd"><h3>Executive Summary</h3></div>
-                  <div className="card-body">
-                    <p className="text-[var(--text)] leading-relaxed text-sm">{report.executive_summary}</p>
+                <div className="space-y-8">
+                  <div className="flex justify-between items-end">
+                    <div><h1 className="text-xl font-bold uppercase">{candidateName} - {roleTitle}</h1><p>Overall Score: {report.overall_score}/5</p></div>
+                    <button className="btn btn-outline" onClick={() => window.print()}>Print Report</button>
                   </div>
-                </motion.div>
-                <motion.div
-                  className="card"
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.15 }}
-                >
-                  <div className="card-hd"><h3>Leadership Archetype</h3></div>
-                  <div className="card-body">
-                    <h4 className="text-[var(--gold)] font-bold text-lg mb-2">{report.leadership_archetype?.name}</h4>
-                    <p className="text-[var(--muted)] text-sm">{report.leadership_archetype?.description}</p>
-                  </div>
-                </motion.div>
-              </div>
-
-              <motion.div
-                className="card mb-6"
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-              >
-                <div className="card-hd flex justify-between items-center">
-                  <h3>Character Dimensions</h3>
-                  <div className="text-xs text-[var(--green)] font-semibold px-3 py-1 bg-[rgba(61,214,140,0.1)] border border-[rgba(61,214,140,0.3)] rounded-full">{report.fit_signal}</div>
-                </div>
-                <div className="card-body p-0">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 border-t border-[var(--br)]">
-                    {report.character_dimensions?.map((dim: any, i: number) => (
-                      <motion.div
-                        key={i}
-                        className="p-5 border-b sm:border-b-0 sm:border-r border-[var(--br)] hover:bg-[var(--s2)] transition-colors"
-                        initial={{ opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.25 + i * 0.06 }}
-                      >
-                        <div className="text-xs font-bold text-[var(--muted)] tracking-wider uppercase mb-1 truncate">{dim.dimension}</div>
-                        <div className="text-sm font-semibold text-[var(--text)] mb-3">{dim.trait}</div>
-                        <div className="flex items-center gap-2 mb-3">
-                          <div className="flex-1 h-1.5 bg-[var(--s3)] rounded-full overflow-hidden">
-                            <motion.div
-                              className="h-full bg-[var(--gold)] rounded-full"
-                              initial={{ width: 0 }}
-                              animate={{ width: `${(dim.score / 5) * 100}%` }}
-                              transition={{ duration: 0.8, delay: 0.4 + i * 0.08, ease: "easeOut" }}
-                            />
-                          </div>
-                          <span className="text-xs font-mono text-[var(--muted)]">{dim.score}/5</span>
+                  <div className="card p-6"><h3>Executive Summary</h3><p className="text-sm mt-4">{report.executive_summary}</p></div>
+                  <div className="card p-0 overflow-hidden">
+                    <div className="grid grid-cols-4 divide-x divide-[var(--br)]">
+                      {report.compResults?.map((r: any, i: number) => (
+                        <div key={i} className="p-4">
+                          <p className="text-[10px] uppercase text-[var(--muted)] mb-1">{r.comp.label}</p>
+                          <p className="text-sm font-bold">{r.scoreData?.score}/5</p>
+                          <p className="text-[10px] mt-2 italic line-clamp-3">{r.response?.transcript}</p>
                         </div>
-                        <p className="text-xs text-[var(--muted)] leading-relaxed line-clamp-3" title={dim.description}>{dim.description}</p>
-                      </motion.div>
-                    ))}
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex gap-4">
+                    <button className="btn btn-outline" onClick={restartSimulation}>Start New</button>
+                    <a href={`/review/${report._dbId}`} className="btn btn-gold">Open Audit Dashboard</a>
                   </div>
                 </div>
-              </motion.div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <motion.div className="card" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-                  <div className="card-hd"><h3>Top Strengths</h3></div>
-                  <div className="card-body">
-                    <ul className="space-y-3 pl-1">
-                      {report.top_strengths?.map((str: string, i: number) => (
-                        <motion.li
-                          key={i}
-                          className="flex gap-3 text-sm text-[var(--text)] leading-relaxed"
-                          initial={{ opacity: 0, x: -8 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: 0.35 + i * 0.06 }}
-                        >
-                          <Check className="shrink-0 text-[var(--green)] mt-0.5" size={16} />
-                          <span>{str}</span>
-                        </motion.li>
-                      ))}
-                    </ul>
-                  </div>
-                </motion.div>
-                <motion.div className="card" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
-                  <div className="card-hd"><h3>Development Focus</h3></div>
-                  <div className="card-body">
-                    <ul className="space-y-3 pl-1">
-                      {report.development_focus?.map((dev: string, i: number) => (
-                        <motion.li
-                          key={i}
-                          className="flex gap-3 text-sm text-[var(--text)] leading-relaxed"
-                          initial={{ opacity: 0, x: -8 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: 0.4 + i * 0.06 }}
-                        >
-                          <div className="shrink-0 w-2 h-2 rounded-full bg-[var(--amber)] mt-1.5" />
-                          <span>{dev}</span>
-                        </motion.li>
-                      ))}
-                    </ul>
-                  </div>
-                </motion.div>
-              </div>
-
-              {report.got_consistency && (
-                <motion.div
-                  className="card mb-6 border-[var(--blue-light)] bg-[rgba(77,166,255,0.02)]"
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 }}
-                >
-                  <div className="card-hd border-b border-[var(--blue-dark)] flex justify-between items-center">
-                    <h3 className="text-[var(--blue-light)] flex items-center gap-2">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
-                      Behavioral Consistency Graph (GOT Layer 2)
-                    </h3>
-                    <div className="px-3 py-1 rounded bg-[var(--blue-dark)] text-white text-xs font-mono font-bold tracking-widest">
-                      SCORE: {report.got_consistency.consistency_score || "N/A"}/100
-                    </div>
-                  </div>
-                  <div className="card-body">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
-                      <div>
-                        <h4 className="text-[10px] text-[var(--red)] uppercase tracking-widest font-bold mb-3 border-b border-[var(--red)] pb-1 inline-block">Detected Contradictions</h4>
-                        {(!report.got_consistency.contradictions_found || report.got_consistency.contradictions_found.length === 0) ? (
-                          <p className="text-xs text-[var(--muted)]">No significant behavioral contradictions detected across scenarios.</p>
-                        ) : (
-                          <ul className="space-y-2">
-                            {report.got_consistency.contradictions_found.map((c: string, idx: number) => (
-                              <li key={idx} className="text-xs text-[var(--text)] flex items-start gap-2">
-                                <span className="text-[var(--red)] mt-0.5 shrink-0">⚠️</span>
-                                <span dangerouslySetInnerHTML={{ __html: c.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>') }} />
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                      <div>
-                        <h4 className="text-[10px] text-[var(--green)] uppercase tracking-widest font-bold mb-3 border-b border-[var(--green)] pb-1 inline-block">Resonance Patterns</h4>
-                        {(!report.got_consistency.resonance_patterns || report.got_consistency.resonance_patterns.length === 0) ? (
-                          <p className="text-xs text-[var(--muted)]">No significant repeating strengths detected.</p>
-                        ) : (
-                          <ul className="space-y-2">
-                            {report.got_consistency.resonance_patterns.map((c: string, idx: number) => (
-                              <li key={idx} className="text-xs text-[var(--text)] flex items-start gap-2">
-                                <span className="text-[var(--green)] mt-0.5 shrink-0">❖</span>
-                                <span dangerouslySetInnerHTML={{ __html: c.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>') }} />
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    </div>
-                    {report.got_consistency.got_summary && (
-                      <div className="p-4 bg-[#06060e] border border-[var(--br)] rounded text-sm text-[var(--text)] leading-relaxed italic border-l-2 border-l-[var(--blue-light)]">
-                        "{report.got_consistency.got_summary}"
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
               )}
-
-              <motion.div
-                className="card border-[var(--gold)] bg-gradient-to-r from-[rgba(201,149,58,0.05)] to-transparent mb-6"
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.45 }}
-              >
-                <div className="card-body p-6">
-                  <h3 className="text-[var(--gold)] font-bold mb-4 text-base">Interview Priorities (Live Probe)</h3>
-                  <ul className="space-y-3">
-                    {report.interview_priorities?.map((ip: string, i: number) => (
-                      <motion.li
-                        key={i}
-                        className="text-sm text-[var(--text)] pl-4 border-l-2 border-[var(--gold2)] py-1 leading-relaxed"
-                        initial={{ opacity: 0, x: -8 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.5 + i * 0.05 }}
-                      >{ip}</motion.li>
-                    ))}
-                  </ul>
-                  <div className="mt-6 pt-5 border-t border-[rgba(201,149,58,0.15)] text-sm text-[var(--text)] leading-relaxed">
-                    <strong className="text-[var(--gold2)] pr-2">Fit Rationale:</strong> {report.fit_rationale}
-                    {report.skipped_competencies_note && (
-                      <div className="mt-3 text-[var(--amber)] italic">{report.skipped_competencies_note}</div>
-                    )}
-                  </div>
-                </div>
-              </motion.div>
-
-              {/* ─── INTERVIEW AUDIT TRAIL (Q&A) ─── */}
-              <motion.div
-                className="card mb-6 overflow-hidden"
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.55 }}
-              >
-                <div className="card-hd bg-gradient-to-r from-[rgba(77,166,255,0.05)] to-transparent border-b border-[var(--br)]">
-                  <h3 className="flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                    Interview Audit Trail (Full Q&A)
-                  </h3>
-                </div>
-                <div className="card-body p-0">
-                  <div className="divide-y divide-[var(--br)]">
-                    {report.competency_details?.map((item: any, idx: number) => (
-                      <div key={idx} className="p-6 hover:bg-black/20 transition-colors">
-                        <div className="flex justify-between items-start mb-4">
-                          <div className="flex items-center gap-3">
-                            <CompIcon iconName={item.comp.icon} category={item.comp.category} size={14} />
-                            <div>
-                              <div className="text-[11px] font-bold text-white uppercase tracking-wider">{item.comp.label}</div>
-                              <div className="text-[10px] text-[var(--muted)]">{item.scenario.type} Scenario</div>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-sm font-bold text-[var(--gold)]">{item.scoreData?.score}/5</div>
-                            <div className={`text-[9px] font-bold uppercase ${item.scoreData?.relevance_score < 50 ? 'text-red-400' : 'text-green-400'}`}>
-                              Alignment: {item.scoreData?.relevance_score || 0}%
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="space-y-4">
-                          <div className="bg-[var(--s3)] p-3 rounded-lg border border-[var(--br)]">
-                            <p className="text-[9px] font-bold text-[var(--gold)] uppercase tracking-widest mb-1.5 opacity-70">Question Asked</p>
-                            <p className="text-xs text-white leading-relaxed">{item.scenario.cta}</p>
-                          </div>
-                          
-                          <div className="pl-4 border-l-2 border-[var(--br)]">
-                            <p className="text-[9px] font-bold text-[var(--muted)] uppercase tracking-widest mb-1.5">Candidate's Response</p>
-                            <p className="text-xs text-[var(--muted)] leading-relaxed italic whitespace-pre-wrap">
-                              "{item.response?.transcript || "No response provided."}"
-                            </p>
-                          </div>
-
-                          {item.scoreData?.alignment_check?.mismatch_reason && (
-                            <div className="bg-red-950/20 border border-red-900/40 p-3 rounded-lg">
-                              <p className="text-[9px] font-bold text-red-400 uppercase tracking-widest mb-1">Integrity Violation Detected</p>
-                              <p className="text-xs text-red-300 italic">"{item.scoreData.alignment_check.mismatch_reason}"</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </motion.div>
-
-              <div className="flex gap-4 justify-between items-center mb-12">
-                <motion.button
-                  className="btn btn-outline"
-                  onClick={restartSimulation}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.97 }}
-                >Start New Assessment</motion.button>
-                {report._dbId && (
-                  <a href={`/review/${report._dbId}`} target="_blank" rel="noopener noreferrer" className="btn btn-gold flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16c0 1.1.9 2 2 2h12a2 2 0 0 0 2-2V8l-6-6z" /><path d="M14 3v5h5M16 13H8M16 17H8M10 9H8" /></svg>
-                    Open Post-Hire Feedback Dashboard (Layer 3)
-                  </a>
-                )}
-              </div>
-            </>
+            </motion.div>
           )}
-        </motion.div>
-      )}
-
+          {phase === "REPORT_LOADING" && (
+            <div className="card p-24 text-center"> <div className="spinner mx-auto" /> <p className="mt-8 text-[var(--gold)]">Analyzing responses...</p> </div>
+          )}
         </AnimatePresence>
       </main>
     </div>
