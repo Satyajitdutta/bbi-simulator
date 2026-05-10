@@ -1,14 +1,50 @@
-import React from "react";
-import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
-import Simulator from "./pages/Simulator";
+import React, { useState, useEffect } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { getSupabase } from "./lib/supabase";
+import Login from "./pages/Login";
+import Simulator from "./pages/Simulator"; // We'll refactor this or use it as Admin Dashboard
 import Review from "./pages/Review";
+
+// Simple Protected Route wrapper
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const [session, setSession] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const supabase = getSupabase();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (loading) return null;
+  if (!session) return <Navigate to="/login" />;
+  return <>{children}</>;
+};
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Simulator />} />
-        <Route path="/review/:candidateId" element={<Review />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/" element={
+          <ProtectedRoute>
+            <Simulator />
+          </ProtectedRoute>
+        } />
+        <Route path="/assess/:token" element={<Simulator isCandidateView={true} />} />
+        <Route path="/review/:candidateId" element={
+          <ProtectedRoute>
+            <Review />
+          </ProtectedRoute>
+        } />
       </Routes>
     </BrowserRouter>
   );

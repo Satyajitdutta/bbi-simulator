@@ -519,9 +519,47 @@ function WaveformBars() {
 
 type AppPhase = "SETUP" | "INTERVIEW" | "REPORT_LOADING" | "REPORT_VIEW";
 
-export default function App() {
+export default function App({ isCandidateView = false }: { isCandidateView?: boolean }) {
+  const { token } = useParams<{ token?: string }>();
   const [phase, setPhase] = useState<AppPhase>("SETUP");
   const [catFilter, setCatFilter] = useState("all");
+  const [isAssessmentLoading, setIsAssessmentLoading] = useState(isCandidateView);
+  const [assessmentError, setAssessmentError] = useState<string | null>(null);
+  const [assessmentData, setAssessmentData] = useState<any>(null);
+
+  // Load assessment if in candidate view
+  useEffect(() => {
+    if (isCandidateView && token) {
+      const loadAssessment = async () => {
+        try {
+          const { getSupabase } = await import("../lib/supabase");
+          const supabase = getSupabase();
+          const { data, error } = await supabase
+            .from('bbi_assessments')
+            .select('*')
+            .eq('token', token)
+            .single();
+
+          if (error || !data) throw new Error("Assessment not found or already completed.");
+          if (data.status === 'completed') throw new Error("This assessment has already been completed.");
+
+          setAssessmentData(data);
+          setCandidateName(data.candidate_name);
+          setRoleTitle(data.role_title);
+          setIndustry(data.industry);
+          setOrgDNA(data.org_dna);
+          setTeamContext(data.team_context);
+          setSelectedIds(data.selected_competencies);
+          setPhase("INTERVIEW");
+        } catch (e: any) {
+          setAssessmentError(e.message);
+        } finally {
+          setIsAssessmentLoading(false);
+        }
+      };
+      loadAssessment();
+    }
+  }, [isCandidateView, token]);
 
   const [candidateName, setCandidateName] = useState("");
   const [roleTitle, setRoleTitle] = useState("");
