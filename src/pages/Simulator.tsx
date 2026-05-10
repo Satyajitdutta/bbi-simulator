@@ -622,6 +622,56 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
   // Report State
   const [report, setReport] = useState<any>(null);
   const [isGotEngineRunning, setIsGotEngineRunning] = useState(false);
+  const [isAssessmentCreating, setIsAssessmentCreating] = useState(false);
+  const [lastGeneratedAssessment, setLastGeneratedAssessment] = useState<any>(null);
+
+  const updateScenarioField = (compId: string, field: string, value: string) => {
+    setScenarios(prev => ({
+      ...prev,
+      [compId]: { ...prev[compId], [field]: value }
+    }));
+  };
+
+  const publishAsAssessment = async () => {
+    const email = prompt("Enter Candidate Email to send this assessment:");
+    if (!email) return;
+    
+    setIsAssessmentCreating(true);
+    try {
+      const { getSupabase } = await import("../lib/supabase");
+      const supabase = getSupabase();
+      
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const { data, error } = await supabase
+        .from('bbi_assessments')
+        .insert({
+          candidate_name: candidateName,
+          candidate_email: email,
+          role_title: roleTitle,
+          industry,
+          org_dna: orgDNA,
+          team_context: teamContext,
+          selected_competencies: selectedIds,
+          // We store the CUSTOMIZED scenarios in a new column or full_report_json equivalent
+          // For now, let's assume the assessment will fetch these if we store them in a 'scenarios' jsonb column
+          // Adding scenarios to the table (need SQL update usually, but for MVP we can use full_report_json)
+          created_by: session?.user?.id
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      setLastGeneratedAssessment(data);
+      alert("Assessment Link Generated! You can find it in your Admin Dashboard.");
+      setPhase("SETUP"); // Back to dashboard mode
+    } catch (e) {
+      console.error(e);
+      alert("Failed to publish assessment.");
+    } finally {
+      setIsAssessmentCreating(false);
+    }
+  };
 
   // DNA & Team selectors
   const [dnaCategory, setDnaCategory] = useState(DNA_CATEGORIES[0].id);
