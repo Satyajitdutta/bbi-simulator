@@ -65,11 +65,20 @@ export default function Review() {
   return (
     <div className="min-h-screen bg-[#06060e] text-[var(--txt)] font-['DM_Sans'] p-8">
       <div className="max-w-4xl mx-auto">
-        <header className="mb-8 pb-4 border-b border-[var(--bd)]">
-          <h1 className="text-2xl font-bold text-[var(--gold)] mb-2">Hiring Manager Post-Hire Review</h1>
-          <p className="text-sm text-[var(--tdim)]">
-            Vision Layer 3: Validate the BBI Simulator predictions against actual 90/180-day performance.
-          </p>
+        <header className="mb-8 pb-4 border-b border-[var(--bd)] flex justify-between items-end">
+          <div>
+            <h1 className="text-2xl font-bold text-[var(--gold)] mb-2">Hiring Manager Post-Hire Review</h1>
+            <p className="text-sm text-[var(--tdim)]">
+              Vision Layer 3: Validate the BBI Simulator predictions against actual 90/180-day performance.
+            </p>
+          </div>
+          <button 
+            onClick={() => window.print()}
+            className="btn btn-outline btn-sm no-print mb-2"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+            Print Review
+          </button>
         </header>
 
         {reportData && (
@@ -98,6 +107,66 @@ export default function Review() {
                <h3 className="text-xs uppercase text-[var(--gold)] font-bold mb-2 tracking-wider">Executive Summary</h3>
                <p>{reportData.executive_summary}</p>
             </div>
+
+            {reportData.full_report_json && (
+              <>
+                <div className="text-sm leading-relaxed mb-6 border-t border-[var(--bd)] pt-4">
+                  <h3 className="text-xs uppercase text-[var(--gold)] font-bold mb-2 tracking-wider">Leadership Archetype</h3>
+                  <h4 className="font-bold text-white mb-1">{reportData.full_report_json.leadership_archetype?.name}</h4>
+                  <p className="text-[var(--tdim)]">{reportData.full_report_json.leadership_archetype?.description}</p>
+                </div>
+
+                <div className="mb-6 border-t border-[var(--bd)] pt-4">
+                  <h3 className="text-xs uppercase text-[var(--gold)] font-bold mb-4 tracking-wider">Character Dimensions</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {reportData.full_report_json.character_dimensions?.map((dim: any, i: number) => (
+                      <div key={i} className="bg-[#0a0d14] p-4 rounded border border-[var(--bd)]">
+                        <div className="text-[10px] font-bold text-[var(--tdim)] tracking-wider uppercase mb-1">{dim.dimension}</div>
+                        <div className="text-sm font-semibold text-white mb-2">{dim.trait}</div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="flex-1 h-1.5 bg-[var(--s3)] rounded-full overflow-hidden">
+                            <div className="h-full bg-[var(--gold)] rounded-full" style={{ width: `${(dim.score / 5) * 100}%` }} />
+                          </div>
+                          <span className="text-xs font-mono text-[var(--tdim)]">{dim.score}/5</span>
+                        </div>
+                        <p className="text-xs text-[var(--tdim)] leading-relaxed">{dim.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6 border-t border-[var(--bd)] pt-4">
+                  <div>
+                    <h3 className="text-xs uppercase text-[var(--gold)] font-bold mb-3 tracking-wider">Top Strengths</h3>
+                    <ul className="space-y-2">
+                      {reportData.full_report_json.top_strengths?.map((str: string, i: number) => (
+                        <li key={i} className="text-sm flex gap-2"><span className="text-[var(--green)]">✓</span> {str}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <h3 className="text-xs uppercase text-[var(--gold)] font-bold mb-3 tracking-wider">Development Focus</h3>
+                    <ul className="space-y-2">
+                      {reportData.full_report_json.development_focus?.map((dev: string, i: number) => (
+                        <li key={i} className="text-sm flex gap-2"><span className="text-[var(--amber)]">❖</span> {dev}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+
+                <div className="mb-6 border-t border-[var(--bd)] pt-4">
+                  <h3 className="text-xs uppercase text-[var(--gold)] font-bold mb-3 tracking-wider">Interview Priorities (Live Probe)</h3>
+                  <ul className="space-y-2 mb-4">
+                    {reportData.full_report_json.interview_priorities?.map((ip: string, i: number) => (
+                      <li key={i} className="text-sm pl-3 border-l-2 border-[var(--gold)] text-[var(--tdim)]">{ip}</li>
+                    ))}
+                  </ul>
+                  <div className="text-sm pt-4 border-t border-dashed border-[var(--bd)]">
+                    <strong className="text-[var(--gold)]">Fit Rationale:</strong> <span className="text-[var(--tdim)]">{reportData.full_report_json.fit_rationale}</span>
+                  </div>
+                </div>
+              </>
+            )}
 
             <div className="text-sm leading-relaxed border-t border-[var(--bd)] pt-4 mb-6">
                <h3 className="text-[10px] uppercase text-[#4da6ff] font-bold mb-2 tracking-wider">GOT Consistency Score</h3>
