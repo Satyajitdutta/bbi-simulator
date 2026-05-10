@@ -511,7 +511,7 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
       integrity_warnings: focusLossCount, 
       full_report_json: { 
         ...rep, 
-        compResults: res,
+        competency_details: res, // RENAMED FROM compResults
         got_consistency: got // SAVING FULL GOT DETAILS
       }, 
       created_at: new Date().toISOString() 
@@ -524,7 +524,7 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
       }).eq('token', token);
     }
 
-    setReport({ ...rep, _dbId: sid, compResults: res, got_consistency: got });
+    setReport({ ...rep, _dbId: sid, competency_details: res, got_consistency: got });
     setPhase("REPORT_VIEW");
   };
 
