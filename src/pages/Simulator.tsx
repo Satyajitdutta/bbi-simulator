@@ -1373,12 +1373,12 @@ Return ONLY valid JSON with this schema:
                     <div className="mt-8">
                       <motion.button
                         className="btn btn-gold btn-full"
-                        onClick={startSimulation}
-                        disabled={!candidateName || !roleTitle || selectedIds.length === 0 || !industry}
+                        onClick={publishAsAssessment}
+                        disabled={!candidateName || !roleTitle || selectedIds.length === 0 || !industry || !candidateEmail || isAssessmentCreating}
                         whileHover={{ scale: 1.01 }}
                         whileTap={{ scale: 0.98 }}
                       >
-                        {isCandidateView ? "Start Simulation" : "Prepare & Edit Scenarios"} <ChevronRight size={16} />
+                        {isAssessmentCreating ? "Creating..." : "Create & Publish Assessment"} <ChevronRight size={16} />
                       </motion.button>
                     </div>
                   </div>
