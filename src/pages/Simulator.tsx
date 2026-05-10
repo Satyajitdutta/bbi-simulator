@@ -815,33 +815,37 @@ export default function App() {
 
     setFetchingScoreId(compId);
 
-    // 1. Security Analysis (parallel with scoring)
+    // 1. Security Analysis (Await this)
     if (!skip && resPayload.transcript) {
-       callGenAI(securityAnalysisPrompt(resPayload.transcript), securitySchema).then(sec => {
-         resPayload.security = sec;
-         setResponses(prev => ({ ...prev, [compId]: { ...prev[compId], security: sec } }));
-       });
+      try {
+        const sec = await callGenAI(securityAnalysisPrompt(resPayload.transcript), securitySchema);
+        resPayload.security = sec;
+      } catch (e) {
+        console.error("Security analysis failed:", e);
+      }
     }
 
-    // 2. Video Upload (if blob exists)
+    // 2. Video Upload (Await this)
     if (!skip && resPayload.videoBlob) {
       setIsUploadingVideo(true);
       const path = `recordings/${candidateName.replace(/\s/g, '_')}_${compId}_${Date.now()}.webm`;
-      uploadToSupabase(resPayload.videoBlob, path).then(url => {
-        if (url) {
-          resPayload.videoUrl = url;
-          setResponses(prev => ({ ...prev, [compId]: { ...prev[compId], videoUrl: url } }));
-        }
-        setIsUploadingVideo(false);
-      });
+      const url = await uploadToSupabase(resPayload.videoBlob, path);
+      if (url) {
+        resPayload.videoUrl = url;
+      }
+      setIsUploadingVideo(false);
     }
 
     setResponses(prev => ({ ...prev, [compId]: resPayload }));
     
-    callGenAI(scoringPrompt(comp, scenario, resPayload, orgDNA), scoringSchema).then(score => {
+    try {
+      const score = await callGenAI(scoringPrompt(comp, scenario, resPayload, orgDNA), scoringSchema);
       setScores(prev => ({ ...prev, [compId]: score }));
-      setFetchingScoreId(null);
-    });
+    } catch (e) {
+      console.error("Scoring failed:", e);
+    }
+    
+    setFetchingScoreId(null);
 
     if (currentIdx < selectedIds.length - 1) {
       setCurrentIdx(i => i + 1);
