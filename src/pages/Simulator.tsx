@@ -632,6 +632,7 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
   const [isGotEngineRunning, setIsGotEngineRunning] = useState(false);
   const [isAssessmentCreating, setIsAssessmentCreating] = useState(false);
   const [lastGeneratedAssessment, setLastGeneratedAssessment] = useState<any>(null);
+  const [isStarted, setIsStarted] = useState(false); // Entry gate for candidates
 
   const updateScenarioField = (compId: string, field: string, value: string) => {
     setScenarios(prev => ({
