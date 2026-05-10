@@ -177,11 +177,41 @@ function characterReportPrompt(roleTitle: string, candidateName: string, compRes
   return `Psychologist profile for ${candidateName} (VP). RESULTS: ${JSON.stringify(compResults)}. TEAM: ${teamContext}. Generate rich profile. JSON Schema: overall_score, overall_verdict, executive_summary, leadership_archetype (name, description), character_dimensions (dimension, trait, score, description), top_strengths, development_focus, fit_signal, fit_rationale, interview_priorities.`;
 }
 
+const gotSystemPrompt = `You are the GOT (Graph of Thought) Consistency Engine.
+Analyze the provided behavioral evidence from multiple interview scenarios for structural and behavioral consistency.
+
+YOUR MISSION:
+1. Identify RESONANCE: Where do the candidate's strengths and logic repeat consistently across different contexts?
+2. Detect CONTRADICTIONS: Does the candidate claim one behavior in Scenario A but demonstrate the opposite in Scenario B? (e.g., claiming "extreme transparency" but then choosing "closed-door decision making" later).
+3. Calculate CONSISTENCY SCORE: 0-100 score on how reliable their behavioral profile is based on cross-scenario mapping.
+
+INPUT DATA:
+- All competency results, scenarios, and verbatim transcripts.
+
+Return ONLY valid JSON:
+{
+  "consistency_score": number (0-100),
+  "resonance_patterns": ["string"],
+  "contradictions_found": ["string"],
+  "got_summary": "Brief overall synthesis of behavioral reliability"
+}`;
+
 /* ─── SCHEMAS ───── */
 const scenarioSchema = { type: "object", properties: { title: { type: "string" }, type: { type: "string" }, scene_setter: { type: "string" }, trigger_content: { type: "string" }, cta: { type: "string" } }, required: ["title", "type", "scene_setter", "trigger_content", "cta"] };
 const securitySchema = { type: "object", properties: { stress_level: { type: "string" }, prompting_detected: { type: "boolean" }, ai_pattern_detected: { type: "boolean" }, confidence_score: { type: "integer" }, integrity_signal: { type: "string" }, reasoning: { type: "string" } }, required: ["stress_level", "prompting_detected", "ai_pattern_detected", "confidence_score", "integrity_signal", "reasoning"] };
 const scoringSchema = { type: "object", properties: { score: { type: "number" }, score_label: { type: "string" }, relevance_score: { type: "number" }, alignment_check: { type: "object", properties: { matches_scene: { type: "boolean" }, answers_cta: { type: "boolean" }, mismatch_reason: { type: "string" } }, required: ["matches_scene", "answers_cta"] }, is_authentic: { type: "boolean" }, bos_match: { type: "string" }, star_completeness: { type: "object", properties: { situation: { type: "boolean" }, task: { type: "boolean" }, action: { type: "boolean" }, result: { type: "boolean" } } }, evidence: { type: "array", items: { type: "string" } }, gaps: { type: "array", items: { type: "string" } }, probe_questions: { type: "array", items: { type: "string" } }, reasoning: { type: "string" } }, required: ["score", "score_label", "bos_match", "star_completeness", "evidence", "gaps", "probe_questions", "reasoning"] };
 const reportSchema = { type: "object", properties: { overall_score: { type: "number" }, overall_verdict: { type: "string" }, executive_summary: { type: "string" }, leadership_archetype: { type: "object", properties: { name: { type: "string" }, description: { type: "string" } } }, character_dimensions: { type: "array", items: { type: "object", properties: { dimension: { type: "string" }, trait: { type: "string" }, score: { type: "number" }, description: { type: "string" } } } }, top_strengths: { type: "array", items: { type: "string" } }, development_focus: { type: "array", items: { type: "string" } }, fit_signal: { type: "string" }, fit_rationale: { type: "string" }, interview_priorities: { type: "array", items: { type: "string" } } }, required: ["overall_score", "overall_verdict", "executive_summary", "leadership_archetype", "character_dimensions", "top_strengths", "development_focus", "fit_signal", "fit_rationale", "interview_priorities"] };
+
+const gotSchema = {
+  type: "object",
+  properties: {
+    consistency_score: { type: "number" },
+    resonance_patterns: { type: "array", items: { type: "string" } },
+    contradictions_found: { type: "array", items: { type: "string" } },
+    got_summary: { type: "string" }
+  },
+  required: ["consistency_score", "resonance_patterns", "contradictions_found", "got_summary"]
+};
 
 /* ─── COMPONENTS ─────────────────────────────────────── */
 function CompCard({ comp, sel, meta, index, onSelect }: { comp: any; sel: boolean; meta: any; index: number; onSelect: (id: string) => void; }) {
@@ -304,17 +334,55 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
 
   const publishAsAssessment = async () => {
     if (!candidateEmail) return alert("Email required.");
+    
     setIsAssessmentCreating(true);
     try {
       const { getSupabase } = await import("../lib/supabase");
       const supabase = getSupabase();
+
+      // 1. Check for existing assessments for this email
+      const { data: existing } = await supabase
+        .from('bbi_assessments')
+        .select('id, status, created_at')
+        .eq('candidate_email', candidateEmail)
+        .order('created_at', { ascending: false });
+
+      if (existing && existing.length > 0) {
+        const lastDate = new Date(existing[0].created_at).toLocaleDateString();
+        const msg = `Candidate ${candidateEmail} was previously interviewed on ${lastDate}.\nStatus: ${existing[0].status.toUpperCase()}.\n\nDo you want to proceed with creating a NEW assessment session?`;
+        if (!window.confirm(msg)) {
+          setIsAssessmentCreating(false);
+          return;
+        }
+      }
+
+      // 2. Proceed with creation
       const { data: { session } } = await supabase.auth.getSession();
-      const { data, error } = await supabase.from('bbi_assessments').insert({ candidate_name: candidateName, candidate_email: candidateEmail, role_title: roleTitle, industry, org_dna: orgDNA, team_context: teamContext, selected_competencies: selectedIds, deadline: deadline || null, created_by: session?.user?.id }).select().single();
+      const { data, error } = await supabase
+        .from('bbi_assessments')
+        .insert({ 
+          candidate_name: candidateName, 
+          candidate_email: candidateEmail, 
+          role_title: roleTitle, 
+          industry, 
+          org_dna: orgDNA, 
+          team_context: teamContext, 
+          selected_competencies: selectedIds, 
+          deadline: deadline || null, 
+          created_by: session?.user?.id 
+        })
+        .select()
+        .single();
+      
       if (error) throw error;
       setLastGeneratedAssessment(data);
       setPhase("PUBLISH_DASHBOARD");
-    } catch { alert("Failed."); }
-    finally { setIsAssessmentCreating(false); }
+    } catch (e) { 
+      console.error(e);
+      alert("Failed to publish assessment."); 
+    } finally { 
+      setIsAssessmentCreating(false); 
+    }
   };
 
   const playTTS = async (text: string) => {
@@ -410,14 +478,53 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
   }, [phase, scores]);
 
   const generateReport = async () => {
-    const res = selectedIds.map(id => ({ comp: COMP_LIBRARY[id], scenario: scenarios[id], response: responses[id], scoreData: scores[id] }));
-    const rep = await callGenAI(characterReportPrompt(roleTitle, candidateName, res, teamContext), reportSchema);
+    const res = selectedIds.map(id => ({ 
+      comp: COMP_LIBRARY[id], 
+      scenario: scenarios[id], 
+      response: responses[id], 
+      scoreData: scores[id] 
+    }));
+
+    // 1. Parallel calls for Character Report and GOT Consistency
+    const [rep, got] = await Promise.all([
+      callGenAI(characterReportPrompt(roleTitle, candidateName, res, teamContext), reportSchema),
+      callGenAI(gotSystemPrompt + "\n\nDATA:\n" + JSON.stringify(res), gotSchema).catch(e => {
+        console.error("GOT Engine failed:", e);
+        return { consistency_score: 0, got_summary: "Consistency analysis unavailable." };
+      })
+    ]);
+
     const { getSupabase } = await import("../lib/supabase");
     const supabase = getSupabase();
     const sid = crypto.randomUUID();
-    await supabase.from("bbi_reports").insert({ id: sid, candidate_name: candidateName, role_title: roleTitle, industry, overall_score: rep.overall_score, fit_signal: rep.fit_signal, executive_summary: rep.executive_summary, integrity_warnings: focusLossCount, full_report_json: { ...rep, compResults: res }, created_at: new Date().toISOString() });
-    if (isCandidateView && token) await supabase.from('bbi_assessments').update({ status: 'completed', report_id: sid }).eq('token', token);
-    setReport({ ...rep, _dbId: sid, compResults: res });
+
+    // 2. Save complete data to Supabase
+    await supabase.from("bbi_reports").insert({ 
+      id: sid, 
+      candidate_name: candidateName, 
+      role_title: roleTitle, 
+      industry, 
+      overall_score: rep.overall_score, 
+      fit_signal: rep.fit_signal, 
+      executive_summary: rep.executive_summary, 
+      got_consistency_score: got.consistency_score, // SAVING THE SCORE
+      integrity_warnings: focusLossCount, 
+      full_report_json: { 
+        ...rep, 
+        compResults: res,
+        got_consistency: got // SAVING FULL GOT DETAILS
+      }, 
+      created_at: new Date().toISOString() 
+    });
+
+    if (isCandidateView && token) {
+      await supabase.from('bbi_assessments').update({ 
+        status: 'completed', 
+        report_id: sid 
+      }).eq('token', token);
+    }
+
+    setReport({ ...rep, _dbId: sid, compResults: res, got_consistency: got });
     setPhase("REPORT_VIEW");
   };
 
@@ -528,34 +635,136 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
             </motion.div>
           )}
           {phase === "REPORT_VIEW" && report && (
-            <motion.div key="report">
+            <motion.div key="report" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
               {isCandidateView ? (
-                <div className="card p-24 text-center">
-                  <Check size={40} className="mx-auto mb-6 text-[var(--green)]" />
-                  <h1 className="mb-4">Completed</h1>
-                  <p className="text-[var(--muted)]">Thank you {candidateName}. Your interview has been submitted.</p>
+                <div className="card my-12 py-24 text-center">
+                  <motion.div className="w-20 h-20 rounded-full bg-[var(--green)]/10 text-[var(--green)] flex items-center justify-center mx-auto mb-6 border border-[var(--green)]/20" initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 200, delay: 0.2 }}>
+                    <Check size={40} strokeWidth={3} />
+                  </motion.div>
+                  <h1 className="text-2xl font-bold mb-4">Assessment Completed</h1>
+                  <p className="text-[var(--muted)] text-sm max-w-md mx-auto leading-relaxed">
+                    Thank you, {candidateName}. Your behavioral simulation is complete and has been submitted to the hiring team for review. You may now close this window.
+                  </p>
                 </div>
               ) : (
-                <div className="space-y-8">
-                  <div className="flex justify-between items-end">
-                    <div><h1 className="text-xl font-bold uppercase">{candidateName} - {roleTitle}</h1><p>Overall Score: {report.overall_score}/5</p></div>
-                    <button className="btn btn-outline" onClick={() => window.print()}>Print Report</button>
-                  </div>
-                  <div className="card p-6"><h3>Executive Summary</h3><p className="text-sm mt-4">{report.executive_summary}</p></div>
-                  <div className="card p-0 overflow-hidden">
-                    <div className="grid grid-cols-4 divide-x divide-[var(--br)]">
-                      {report.compResults?.map((r: any, i: number) => (
-                        <div key={i} className="p-4">
-                          <p className="text-[10px] uppercase text-[var(--muted)] mb-1">{r.comp.label}</p>
-                          <p className="text-sm font-bold">{r.scoreData?.score}/5</p>
-                          <p className="text-[10px] mt-2 italic line-clamp-3">{r.response?.transcript}</p>
+                <div className="space-y-8 pb-12">
+                  <div className="sh flex justify-between items-end">
+                    <div>
+                      <h1>Behavioral Character Profile</h1>
+                      <p>{candidateName} — Assessed for {roleTitle}</p>
+                    </div>
+                    <div className="flex items-center gap-6 text-right">
+                      <div>
+                        <div className="text-xs uppercase tracking-wide text-[var(--muted)]">Overall Score</div>
+                        <div className="text-3xl font-bold text-[var(--gold)]">
+                          {report.overall_score?.toFixed(1)} <span className="text-base text-[var(--dim)]">/ 5.0</span>
                         </div>
-                      ))}
+                      </div>
+                      <button className="btn btn-outline h-fit no-print" onClick={() => window.print()}>Print Report</button>
                     </div>
                   </div>
-                  <div className="flex gap-4">
-                    <button className="btn btn-outline" onClick={restartSimulation}>Start New</button>
-                    <a href={`/review/${report._dbId}`} className="btn btn-gold">Open Audit Dashboard</a>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="card md:col-span-2 p-6">
+                      <h3 className="text-xs uppercase text-[var(--gold)] font-bold mb-4 tracking-wider">Executive Summary</h3>
+                      <p className="text-[var(--text)] leading-relaxed text-sm">{report.executive_summary}</p>
+                    </div>
+                    <div className="card p-6">
+                      <h3 className="text-xs uppercase text-[var(--gold)] font-bold mb-4 tracking-wider">Leadership Archetype</h3>
+                      <h4 className="text-white font-bold text-lg mb-2">{report.leadership_archetype?.name}</h4>
+                      <p className="text-[var(--muted)] text-xs leading-relaxed">{report.leadership_archetype?.description}</p>
+                    </div>
+                  </div>
+
+                  <div className="card">
+                    <div className="card-hd flex justify-between items-center bg-[var(--s1)]">
+                      <h3 className="text-xs uppercase text-[var(--gold)] font-bold tracking-wider">Character Dimensions</h3>
+                      <div className="text-[10px] text-[var(--green)] font-semibold px-2 py-0.5 bg-[var(--green)]/10 border border-[var(--green)]/20 rounded-full">{report.fit_signal}</div>
+                    </div>
+                    <div className="card-body p-0">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 border-t border-[var(--br)]">
+                        {report.character_dimensions?.map((dim: any, i: number) => (
+                          <div key={i} className="p-5 border-b sm:border-b-0 sm:border-r border-[var(--br)] hover:bg-white/5 transition-colors">
+                            <div className="text-[9px] font-bold text-[var(--muted)] tracking-widest uppercase mb-1">{dim.dimension}</div>
+                            <div className="text-sm font-semibold text-white mb-3">{dim.trait}</div>
+                            <div className="flex items-center gap-2 mb-3">
+                              <div className="flex-1 h-1 bg-[var(--s3)] rounded-full overflow-hidden">
+                                <div className="h-full bg-[var(--gold)] rounded-full" style={{ width: `${(dim.score / 5) * 100}%` }} />
+                              </div>
+                              <span className="text-xs font-mono text-[var(--muted)]">{dim.score}/5</span>
+                            </div>
+                            <p className="text-[10px] text-[var(--muted)] leading-relaxed line-clamp-3">{dim.description}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {report.got_consistency && (
+                    <div className="card border-[rgba(77,166,255,0.3)] bg-[rgba(77,166,255,0.02)]">
+                      <div className="card-hd border-b border-[rgba(77,166,255,0.2)] flex justify-between items-center">
+                        <h3 className="text-[#4da6ff] flex items-center gap-2 text-xs uppercase tracking-widest">Behavioral Consistency (GOT Engine)</h3>
+                        <div className="px-3 py-1 rounded bg-[rgba(77,166,255,0.1)] text-white text-xs font-bold font-mono">SCORE: {report.got_consistency.consistency_score}/100</div>
+                      </div>
+                      <div className="card-body grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div>
+                           <h4 className="text-[9px] text-red-400 uppercase tracking-widest font-bold mb-3">Detected Contradictions</h4>
+                           <ul className="space-y-2">
+                             {report.got_consistency.contradictions_found?.map((c: string, idx: number) => (
+                               <li key={idx} className="text-xs text-[var(--text)] flex gap-2"><span className="text-red-500">⚠️</span> {c}</li>
+                             ))}
+                           </ul>
+                        </div>
+                        <div>
+                           <h4 className="text-[9px] text-green-400 uppercase tracking-widest font-bold mb-3">Resonance Patterns</h4>
+                           <ul className="space-y-2">
+                             {report.got_consistency.resonance_patterns?.map((r: string, idx: number) => (
+                               <li key={idx} className="text-xs text-[var(--text)] flex gap-2"><span className="text-green-500">❖</span> {r}</li>
+                             ))}
+                           </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="card p-6">
+                      <h3 className="text-xs uppercase text-[var(--gold)] font-bold mb-4 tracking-wider">Top Strengths</h3>
+                      <ul className="space-y-3">
+                        {report.top_strengths?.map((str: string, i: number) => (
+                          <li key={i} className="flex gap-3 text-sm text-[var(--text)] leading-relaxed"><Check className="text-[var(--green)] shrink-0 mt-0.5" size={16} /> <span>{str}</span></li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="card p-6">
+                      <h3 className="text-xs uppercase text-[var(--gold)] font-bold mb-4 tracking-wider">Development Focus</h3>
+                      <ul className="space-y-3">
+                        {report.development_focus?.map((dev: string, i: number) => (
+                          <li key={i} className="flex gap-3 text-sm text-[var(--text)] leading-relaxed"><div className="w-2 h-2 rounded-full bg-[var(--amber)] mt-1.5 shrink-0" /> <span>{dev}</span></li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div className="card p-6 border-[var(--gold)] bg-gradient-to-r from-[rgba(201,149,58,0.05)] to-transparent">
+                     <h3 className="text-xs uppercase text-[var(--gold)] font-bold mb-4 tracking-wider">Interview Priorities (Live Probe)</h3>
+                     <ul className="space-y-3 mb-6">
+                       {report.interview_priorities?.map((ip: string, i: number) => (
+                         <li key={i} className="text-sm text-white pl-4 border-l-2 border-[var(--gold)] py-1 leading-relaxed italic">"{ip}"</li>
+                       ))}
+                     </ul>
+                     <div className="text-sm text-[var(--muted)] pt-5 border-t border-[var(--br)]">
+                       <strong className="text-[var(--gold)] mr-2">Fit Rationale:</strong> {report.fit_rationale}
+                     </div>
+                  </div>
+
+                  <div className="flex gap-4 justify-between items-center pt-8">
+                    <button className="btn btn-outline" onClick={() => window.location.reload()}>Start New Assessment</button>
+                    {report._dbId && (
+                      <a href={`/review/${report._dbId}`} target="_blank" className="btn btn-gold gap-2">
+                         <FileText size={16} /> Open Detailed Audit Dashboard (Layer 3)
+                      </a>
+                    )}
                   </div>
                 </div>
               )}
