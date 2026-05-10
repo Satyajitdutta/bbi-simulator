@@ -1840,19 +1840,18 @@ Return ONLY valid JSON with this schema:
                       <h1>Behavioral Character Profile</h1>
                       <p>{candidateName} — Assessed for {roleTitle}</p>
                     </div>
-                    {/* ... rest of existing report header ... */}
-                <div className="flex items-center gap-6 text-right">
-                  <div>
-                    <div className="text-xs uppercase tracking-wide text-[var(--muted)]">Overall Score</div>
-                    <motion.div
-                      className="text-3xl font-bold font-['Syne'] text-[var(--gold)]"
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
-                    >
-                      {report.overall_score?.toFixed(1)} <span className="text-base text-[var(--dim)]">/ 5.0</span>
-                    </motion.div>
-                  </div>
+                    <div className="flex items-center gap-6 text-right">
+                      <div>
+                        <div className="text-xs uppercase tracking-wide text-[var(--muted)]">Overall Score</div>
+                        <motion.div
+                          className="text-3xl font-bold font-['Syne'] text-[var(--gold)]"
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
+                        >
+                          {report.overall_score?.toFixed(1)} <span className="text-base text-[var(--dim)]">/ 5.0</span>
+                        </motion.div>
+                      </div>
                   <motion.button
                     className="btn btn-outline h-fit no-print"
                     onClick={() => window.print()}
