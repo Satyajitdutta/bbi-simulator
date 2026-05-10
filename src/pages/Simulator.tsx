@@ -633,6 +633,7 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
   const [isAssessmentCreating, setIsAssessmentCreating] = useState(false);
   const [lastGeneratedAssessment, setLastGeneratedAssessment] = useState<any>(null);
   const [isStarted, setIsStarted] = useState(false); // Entry gate for candidates
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const updateScenarioField = (compId: string, field: string, value: string) => {
     setScenarios(prev => ({
@@ -898,6 +899,9 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
 
   /* ─── SUBMIT / NAVIGATION ─────────────────────────────────── */
   const handleSubmitResponse = async (skip: boolean = false) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    
     stopRecording();
     if (audioPlayerRef.current) {
       audioPlayerRef.current.pause();
@@ -905,51 +909,55 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
     }
     setIsSpeakingManager(false);
 
-    const compId = selectedIds[currentIdx];
-    const comp = COMP_LIBRARY[compId];
-    const scenario = scenarios[compId];
-    const resPayload: any = skip ? { transcript: "" } : { ...currentResponse };
-
-    setFetchingScoreId(compId);
-
-    // 1. Security Analysis (Await this)
-    if (!skip && resPayload.transcript) {
-      try {
-        const sec = await callGenAI(securityAnalysisPrompt(resPayload.transcript), securitySchema);
-        resPayload.security = sec;
-      } catch (e) {
-        console.error("Security analysis failed:", e);
-      }
-    }
-
-    // 2. Video Upload (Await this)
-    if (!skip && resPayload.videoBlob) {
-      setIsUploadingVideo(true);
-      const path = `recordings/${candidateName.replace(/\s/g, '_')}_${compId}_${Date.now()}.webm`;
-      const url = await uploadToSupabase(resPayload.videoBlob, path);
-      if (url) {
-        resPayload.videoUrl = url;
-      }
-      setIsUploadingVideo(false);
-    }
-
-    setResponses(prev => ({ ...prev, [compId]: resPayload }));
-    
     try {
-      const score = await callGenAI(scoringPrompt(comp, scenario, resPayload, orgDNA), scoringSchema);
-      setScores(prev => ({ ...prev, [compId]: score }));
-    } catch (e) {
-      console.error("Scoring failed:", e);
-    }
-    
-    setFetchingScoreId(null);
+      const compId = selectedIds[currentIdx];
+      const comp = COMP_LIBRARY[compId];
+      const scenario = scenarios[compId];
+      const resPayload: any = skip ? { transcript: "" } : { ...currentResponse };
 
-    if (currentIdx < selectedIds.length - 1) {
-      setCurrentIdx(i => i + 1);
-      setCurrentResponse({ transcript: "" });
-      setScenarioError(null);
-    } else {
-      setPhase("REPORT_LOADING");
+      setFetchingScoreId(compId);
+
+      // 1. Security Analysis (Await this)
+      if (!skip && resPayload.transcript) {
+        try {
+          const sec = await callGenAI(securityAnalysisPrompt(resPayload.transcript), securitySchema);
+          resPayload.security = sec;
+        } catch (e) {
+          console.error("Security analysis failed:", e);
+        }
+      }
+
+      // 2. Video Upload (Await this)
+      if (!skip && resPayload.videoBlob) {
+        setIsUploadingVideo(true);
+        const path = `recordings/${candidateName.replace(/\s/g, '_')}_${compId}_${Date.now()}.webm`;
+        const url = await uploadToSupabase(resPayload.videoBlob, path);
+        if (url) {
+          resPayload.videoUrl = url;
+        }
+        setIsUploadingVideo(false);
+      }
+
+      setResponses(prev => ({ ...prev, [compId]: resPayload }));
+      
+      try {
+        const score = await callGenAI(scoringPrompt(comp, scenario, resPayload, orgDNA), scoringSchema);
+        setScores(prev => ({ ...prev, [compId]: score }));
+      } catch (e) {
+        console.error("Scoring failed:", e);
+      }
+      
+      setFetchingScoreId(null);
+
+      if (currentIdx < selectedIds.length - 1) {
+        setCurrentIdx(i => i + 1);
+        setCurrentResponse({ transcript: "" });
+        setScenarioError(null);
+      } else {
+        setPhase("REPORT_LOADING");
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -1810,8 +1818,9 @@ Return ONLY valid JSON with this schema:
                           </motion.button>
                           <motion.button className="btn btn-gold flex-[2] justify-center"
                             onClick={() => handleSubmitResponse(false)}
+                            disabled={isSubmitting || isSarvamProcessing}
                             whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.97 }}>
-                            Submit & Next <ChevronRight size={16} />
+                            {isSubmitting ? "Processing..." : "Submit & Next"} <ChevronRight size={16} />
                           </motion.button>
                         </div>
                       </div>
