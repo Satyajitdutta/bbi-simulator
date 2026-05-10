@@ -551,6 +551,12 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
           setOrgDNA(data.org_dna);
           setTeamContext(data.team_context);
           setSelectedIds(data.selected_competencies);
+          
+          // Use pre-generated scenarios if they exist
+          if (data.custom_scenarios) {
+            setScenarios(data.custom_scenarios);
+          }
+          
           setPhase("INTERVIEW");
         } catch (e: any) {
           setAssessmentError(e.message);
@@ -658,7 +664,6 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
           team_context: teamContext,
           selected_competencies: selectedIds,
           deadline: deadline || null,
-          custom_scenarios: scenarios,
           created_by: session?.user?.id
         })
         .select()
@@ -666,7 +671,6 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
 
       if (error) throw error;
       setLastGeneratedAssessment(data);
-      // instead of alert, we will transition UI to show the 'BBI.1' trigger row
       setPhase("PUBLISH_DASHBOARD");
     } catch (e) {
       console.error(e);
@@ -1436,12 +1440,21 @@ Return ONLY valid JSON with this schema:
               exit={{ opacity: 0, x: -30 }}
               transition={{ duration: 0.35, ease: "easeOut" }}
             >
-              <div className="sh flex justify-between items-end">
-                <div>
-                  <h1>Simulation in Progress</h1>
-                  <p>Scenario {currentIdx + 1} of {selectedIds.length} — Assessing {COMP_LIBRARY[selectedIds[currentIdx]]?.label || "Competency"}</p>
+              {!isCandidateView ? (
+                /* Safety redirect for Admins */
+                <div className="card p-12 text-center">
+                  <p className="text-[var(--gold)] font-bold mb-4 uppercase tracking-widest">Admin Redirect</p>
+                  <p className="text-xs text-[var(--muted)] mb-6">You are not supposed to take the assessment. Redirecting to your dashboard...</p>
+                  <button className="btn btn-outline" onClick={() => setPhase("PUBLISH_DASHBOARD")}>Go to Dashboard</button>
                 </div>
-              </div>
+              ) : (
+                <>
+                  <div className="sh flex justify-between items-end">
+                    <div>
+                      <h1>Simulation in Progress</h1>
+                      <p>Scenario {currentIdx + 1} of {selectedIds.length} — Assessing {COMP_LIBRARY[selectedIds[currentIdx]]?.label || "Competency"}</p>
+                    </div>
+                  </div>
 
               {/* ── Step progress bar ── */}
               <div className="mb-6">
