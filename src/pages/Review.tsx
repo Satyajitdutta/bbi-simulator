@@ -234,7 +234,7 @@ export default function Review() {
                       </div>
                       <div className="px-4 pb-4">
                         <p className="text-[10px] text-[var(--tdim)] uppercase font-bold mb-1">Transcript</p>
-                        <p className="text-[11px] text-[var(--tdim)] line-clamp-2 hover:line-clamp-none transition-all cursor-pointer">
+                        <p className="text-[11px] text-[var(--tdim)] leading-relaxed whitespace-pre-wrap">
                           {item.response?.transcript || "No transcript available."}
                         </p>
                       </div>
