@@ -634,6 +634,21 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
   const [lastGeneratedAssessment, setLastGeneratedAssessment] = useState<any>(null);
   const [isStarted, setIsStarted] = useState(false); // Entry gate for candidates
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [permissionError, setPermissionError] = useState<string | null>(null);
+
+  const requestPermissions = async () => {
+    setPermissionError(null);
+    try {
+      // Request both at once for a single popup experience
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      setCameraStream(stream);
+      return true;
+    } catch (e: any) {
+      console.error("Permissions rejected:", e);
+      setPermissionError("Camera and Microphone access are required to proceed. Please check your browser settings and click allow.");
+      return false;
+    }
+  };
 
   const updateScenarioField = (compId: string, field: string, value: string) => {
     setScenarios(prev => ({
