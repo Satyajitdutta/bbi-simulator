@@ -518,7 +518,7 @@ function WaveformBars() {
   );
 }
 
-type AppPhase = "SETUP" | "INTERVIEW" | "REPORT_LOADING" | "REPORT_VIEW";
+type AppPhase = "SETUP" | "INTERVIEW" | "REPORT_LOADING" | "REPORT_VIEW" | "PUBLISH_DASHBOARD";
 
 export default function App({ isCandidateView = false }: { isCandidateView?: boolean }) {
   const { token } = useParams<{ token?: string }>();
@@ -565,6 +565,7 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
   const [candidateName, setCandidateName] = useState("");
   const [candidateEmail, setCandidateEmail] = useState("");
   const [roleTitle, setRoleTitle] = useState("");
+  const [deadline, setDeadline] = useState(""); // TAT Date
   const [industry, setIndustry] = useState("Technology / SaaS");
   const [managerName, setManagerName] = useState("");
   const [managerPhoto, setManagerPhoto] = useState<string>("");
@@ -656,6 +657,8 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
           org_dna: orgDNA,
           team_context: teamContext,
           selected_competencies: selectedIds,
+          deadline: deadline || null,
+          custom_scenarios: scenarios,
           created_by: session?.user?.id
         })
         .select()
@@ -663,8 +666,8 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
 
       if (error) throw error;
       setLastGeneratedAssessment(data);
-      alert("Assessment Link Generated! You can find it in your Admin Dashboard.");
-      setPhase("SETUP"); 
+      // instead of alert, we will transition UI to show the 'BBI.1' trigger row
+      setPhase("PUBLISH_DASHBOARD");
     } catch (e) {
       console.error(e);
       alert("Failed to publish assessment.");
@@ -1130,10 +1133,22 @@ Return ONLY valid JSON with this schema:
                     <h3>Candidate Details</h3>
                   </div>
                   <div className="card-body">
-                    <GlowInput label="Candidate Name" value={candidateName} onChange={setCandidateName} placeholder="e.g. Jane Doe" />
-                    <GlowInput label="Candidate Email" value={candidateEmail} onChange={setCandidateEmail} placeholder="e.g. jane@example.com" />
-                    <GlowInput label="Role Assessed For" value={roleTitle} onChange={setRoleTitle} placeholder="e.g. Senior Director of Product" />
+                  <GlowInput label="Candidate Name" value={candidateName} onChange={setCandidateName} placeholder="e.g. Jane Doe" />
+                  <GlowInput label="Candidate Email" value={candidateEmail} onChange={setCandidateEmail} placeholder="e.g. jane@example.com" />
+                  <GlowInput label="Role Assessed For" value={roleTitle} onChange={setRoleTitle} placeholder="e.g. Senior Director of Product" />
 
+                  {/* ── TURNAROUND TIME (TAT) ── */}
+                  <div className="fgrp">
+                    <label className="flabel mt-1" style={{ color: "var(--amber)" }}>
+                      Assessment Deadline (TAT) <span className="text-[9px] opacity-50 normal-case font-normal ml-1">calendar selector</span>
+                    </label>
+                    <input 
+                      type="datetime-local" 
+                      className="finput bg-[#0a0d14]" 
+                      value={deadline}
+                      onChange={e => setDeadline(e.target.value)}
+                    />
+                  </div>
                     {/* ── HIRING MANAGER PERSONALIZATION ── */}
                     <div className="fgrp">
                       <label className="flabel mt-1" style={{ color: "var(--muted)" }}>
@@ -1886,6 +1901,100 @@ Return ONLY valid JSON with this schema:
                         ? "Running Graph of Thought (GOT) cross-competency analysis..."
                         : "Synthesizing comprehensive character report..."}
                   </p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ─── PUBLISH DASHBOARD (BBI.1) ────────────────────── */}
+          {phase === "PUBLISH_DASHBOARD" && lastGeneratedAssessment && (
+            <motion.div
+              key="publish"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              className="card my-12"
+            >
+              <div className="card-hd flex justify-between items-center bg-[var(--s1)] border-b border-[var(--br)]">
+                <h3 className="flex items-center gap-2 text-[var(--gold)]">
+                  <Check size={16} /> Assessment Ready to Trigger
+                </h3>
+                <div className="flex gap-2">
+                   <button className="btn btn-sm btn-ghost" onClick={() => setPhase("SETUP")}>
+                     <Plus size={14} /> New Configuration
+                   </button>
+                   <a href="/admin" className="btn btn-sm btn-outline">
+                     <FileText size={14} /> View History
+                   </a>
+                </div>
+              </div>
+              <div className="card-body p-8">
+                <div className="flex flex-col md:flex-row justify-between items-center gap-8 bg-black/40 p-6 rounded-xl border border-[var(--br)]">
+                  <div className="flex items-center gap-4 flex-1">
+                    <div className="w-12 h-12 rounded-full bg-[var(--gold)]/10 text-[var(--gold)] flex items-center justify-center font-bold">
+                      <Clock size={24} />
+                    </div>
+                    <div>
+                      <div className="text-lg font-bold text-white">{lastGeneratedAssessment.candidate_name}</div>
+                      <div className="text-xs text-[var(--muted)]">{lastGeneratedAssessment.candidate_email}</div>
+                      <div className="text-[10px] text-[var(--dim)] uppercase font-bold mt-1">
+                        {lastGeneratedAssessment.role_title} • {lastGeneratedAssessment.industry}
+                      </div>
+                    </div>
+                    <div className="hidden md:block h-12 w-px bg-[var(--br)] mx-4" />
+                    <div>
+                      <div className="text-[10px] text-[var(--amber)] uppercase font-bold mb-1">TAT / Deadline</div>
+                      <div className="text-xs text-white">
+                        {lastGeneratedAssessment.deadline 
+                          ? new Date(lastGeneratedAssessment.deadline).toLocaleString() 
+                          : "No deadline set"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button className="btn btn-ghost gap-2" onClick={() => {
+                      const url = `${window.location.origin}/assess/${lastGeneratedAssessment.token}`;
+                      navigator.clipboard.writeText(url);
+                      alert("Assessment link copied!");
+                    }}>
+                      <LinkIcon size={16} /> Copy Link
+                    </button>
+                    <button className="btn btn-gold gap-2" onClick={() => {
+                      const url = `${window.location.origin}/assess/${lastGeneratedAssessment.token}`;
+                      const subject = encodeURIComponent(`Action Required: Behavioral Interview for ${lastGeneratedAssessment.role_title} Role`);
+                      const body = encodeURIComponent(`Hi ${lastGeneratedAssessment.candidate_name},\n\nYou have been invited to complete a behavioral assessment for the ${lastGeneratedAssessment.role_title} position.\n\nDeadline: ${lastGeneratedAssessment.deadline ? new Date(lastGeneratedAssessment.deadline).toLocaleString() : 'As soon as possible'}\n\nPlease use the following secure link to start the simulation:\n${url}\n\nGood luck!`);
+                      window.location.href = `mailto:${lastGeneratedAssessment.candidate_email}?subject=${subject}&body=${body}`;
+                    }}>
+                      <Mail size={16} /> Email Candidate
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+                   <div className="space-y-4">
+                      <h4 className="text-[10px] uppercase font-bold text-[var(--dim)] tracking-widest">Internal Details</h4>
+                      <div className="text-xs space-y-2">
+                        <div className="flex justify-between border-b border-[var(--br)] pb-1">
+                          <span className="text-[var(--muted)]">Status</span>
+                          <span className="text-[var(--gold)] font-bold uppercase">Pending Response</span>
+                        </div>
+                        <div className="flex justify-between border-b border-[var(--br)] pb-1">
+                          <span className="text-[var(--muted)]">Competencies</span>
+                          <span>{selectedIds.length} Selected</span>
+                        </div>
+                        <div className="flex justify-between border-b border-[var(--br)] pb-1">
+                          <span className="text-[var(--muted)]">Proctoring</span>
+                          <span className="text-[var(--green)]">Active</span>
+                        </div>
+                      </div>
+                   </div>
+                   <div className="bg-[var(--s3)] p-4 rounded-lg border border-[var(--br)] flex flex-col justify-center items-center text-center">
+                      <div className="text-[var(--dim)] mb-2"><Check size={32} opacity={0.2} /></div>
+                      <p className="text-xs text-[var(--muted)] leading-relaxed">
+                        Once the candidate completes the assessment, the result will automatically appear in your <strong>History</strong>.
+                      </p>
+                   </div>
                 </div>
               </div>
             </motion.div>
