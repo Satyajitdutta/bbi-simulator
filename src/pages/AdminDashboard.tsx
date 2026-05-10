@@ -1,26 +1,18 @@
 import React, { useState, useEffect } from "react";
 import { getSupabase } from "../lib/supabase";
 import { motion, AnimatePresence } from "motion/react";
-import { Plus, Link as LinkIcon, Mail, FileText, ChevronRight, Check, X, LogOut, Clock, Play } from "lucide-react";
+import { Plus, Link as LinkIcon, Mail, FileText, ChevronRight, Check, X, LogOut, Clock, Play, Edit3 } from "lucide-react";
 import { COMP_LIBRARY, CAT_META, DNA_CATEGORIES, TEAM_DYNAMIC_TEMPLATES, INDUSTRIES } from "../data/bbi_metadata";
 import CompIcon from "../components/CompIcon";
 import CustomSelect from "../components/CustomSelect";
+import Simulator from "./Simulator";
 
 export default function AdminDashboard() {
   const [assessments, setAssessments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [session, setSession] = useState<any>(null);
-
-  // Form State
-  const [candidateName, setCandidateName] = useState("");
-  const [candidateEmail, setCandidateEmail] = useState("");
-  const [roleTitle, setRoleTitle] = useState("");
-  const [industry, setIndustry] = useState(INDUSTRIES[0]);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [orgDNA, setOrgDNA] = useState(DNA_CATEGORIES[0].options[0].value);
-  const [teamContext, setTeamContext] = useState(TEAM_DYNAMIC_TEMPLATES[0].options[0].value);
-  const [isCreating, setIsCreating] = useState(false);
+  const [view, setView] = useState<"LIST" | "SIMULATOR">("LIST");
 
   useEffect(() => {
     const supabase = getSupabase();
@@ -57,55 +49,19 @@ export default function AdminDashboard() {
     window.location.href = "/login";
   };
 
-  const createAssessment = async () => {
-    if (!candidateName || !candidateEmail || !roleTitle || selectedIds.length === 0) return;
-    setIsCreating(true);
-    try {
-      const supabase = getSupabase();
-      const { data, error } = await supabase
-        .from('bbi_assessments')
-        .insert({
-          candidate_name: candidateName,
-          candidate_email: candidateEmail,
-          role_title: roleTitle,
-          industry,
-          org_dna: orgDNA,
-          team_context: teamContext,
-          selected_competencies: selectedIds,
-          created_by: session?.user?.id
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-      
-      setShowCreateModal(false);
-      fetchAssessments();
-      // Reset form
-      setCandidateName("");
-      setCandidateEmail("");
-      setRoleTitle("");
-      setSelectedIds([]);
-    } catch (e) {
-      console.error("Error creating assessment:", e);
-      alert("Failed to create assessment.");
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  const copyLink = (token: string) => {
-    const url = `${window.location.origin}/assess/${token}`;
-    navigator.clipboard.writeText(url);
-    alert("Candidate link copied to clipboard!");
-  };
-
-  const sendEmail = (assessment: any) => {
-    const url = `${window.location.origin}/assess/${assessment.token}`;
-    const subject = encodeURIComponent(`Action Required: Behavioral Interview for ${assessment.role_title} Role`);
-    const body = encodeURIComponent(`Hi ${assessment.candidate_name},\n\nYou have been invited to complete a behavioral assessment for the ${assessment.role_title} position.\n\nPlease use the following secure link to start the simulation:\n${url}\n\nGood luck!`);
-    window.location.href = `mailto:${assessment.candidate_email}?subject=${subject}&body=${body}`;
-  };
+  if (view === "SIMULATOR") {
+    return (
+      <div className="relative">
+        <button 
+          onClick={() => { setView("LIST"); fetchAssessments(); }}
+          className="fixed top-20 right-8 z-[300] btn btn-sm btn-ghost bg-black/40 backdrop-blur"
+        >
+          <X size={14} /> Close Simulator
+        </button>
+        <Simulator />
+      </div>
+    );
+  }
 
   return (
     <div className="app">
@@ -133,9 +89,9 @@ export default function AdminDashboard() {
           </div>
           <button 
             className="btn btn-gold"
-            onClick={() => setShowCreateModal(true)}
+            onClick={() => setView("SIMULATOR")}
           >
-            <Plus size={16} /> New Assessment
+            <Plus size={16} /> New Assessment (Immersive Mode)
           </button>
         </div>
 
@@ -150,7 +106,7 @@ export default function AdminDashboard() {
             </div>
             <h3 className="text-[var(--muted)] font-bold uppercase tracking-widest text-sm mb-2">No Assessments Yet</h3>
             <p className="text-[var(--dim)] text-xs mb-6">Create your first assessment link to invite candidates.</p>
-            <button className="btn btn-outline" onClick={() => setShowCreateModal(true)}>
+            <button className="btn btn-outline" onClick={() => setView("SIMULATOR")}>
               Get Started
             </button>
           </div>
@@ -181,11 +137,20 @@ export default function AdminDashboard() {
                 <div className="flex items-center gap-3">
                   {a.status === 'pending' ? (
                     <>
-                      <button className="btn btn-sm btn-ghost" onClick={() => copyLink(a.token)}>
+                      <button className="btn btn-sm btn-ghost" onClick={() => {
+                        const url = `${window.location.origin}/assess/${a.token}`;
+                        navigator.clipboard.writeText(url);
+                        alert("Link copied!");
+                      }}>
                         <LinkIcon size={14} /> Copy Link
                       </button>
-                      <button className="btn btn-sm btn-ghost" onClick={() => sendEmail(a)}>
-                        <Mail size={14} /> Send Email
+                      <button className="btn btn-sm btn-ghost" onClick={() => {
+                        const url = `${window.location.origin}/assess/${a.token}`;
+                        const subject = encodeURIComponent(`Action Required: Behavioral Interview for ${a.role_title} Role`);
+                        const body = encodeURIComponent(`Hi ${a.candidate_name},\n\nYou have been invited to complete a behavioral assessment for the ${a.role_title} position.\n\nPlease use the following secure link to start the simulation:\n${url}\n\nGood luck!`);
+                        window.location.href = `mailto:${a.candidate_email}?subject=${subject}&body=${body}`;
+                      }}>
+                        <Mail size={14} /> Email
                       </button>
                       <a href={`/assess/${a.token}`} target="_blank" className="btn btn-sm btn-outline">
                          <Play size={14} /> Preview
@@ -208,89 +173,6 @@ export default function AdminDashboard() {
           </div>
         )}
       </main>
-
-      {/* CREATE MODAL */}
-      <AnimatePresence>
-        {showCreateModal && (
-          <div className="fixed inset-0 z-[500] flex items-center justify-center p-4">
-            <motion.div 
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowCreateModal(false)}
-            />
-            <motion.div 
-              className="card w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col relative z-[501]"
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-            >
-              <div className="card-hd border-b border-[var(--br)] flex justify-between items-center bg-[var(--s1)]">
-                <h3>New Candidate Assessment</h3>
-                <button onClick={() => setShowCreateModal(false)} className="text-[var(--dim)] hover:text-white">
-                  <X size={20} />
-                </button>
-              </div>
-              
-              <div className="p-8 overflow-y-auto">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="space-y-4">
-                    <div className="fgrp">
-                      <label className="flabel">Candidate Name</label>
-                      <input className="finput" value={candidateName} onChange={e => setCandidateName(e.target.value)} placeholder="Full Name" />
-                    </div>
-                    <div className="fgrp">
-                      <label className="flabel">Candidate Email</label>
-                      <input className="finput" type="email" value={candidateEmail} onChange={e => setCandidateEmail(e.target.value)} placeholder="email@example.com" />
-                    </div>
-                    <div className="fgrp">
-                      <label className="flabel">Target Role</label>
-                      <input className="finput" value={roleTitle} onChange={e => setRoleTitle(e.target.value)} placeholder="e.g. Director of Engineering" />
-                    </div>
-                    <div className="fgrp">
-                      <label className="flabel">Industry Sector</label>
-                      <CustomSelect value={industry} onChange={setIndustry} options={INDUSTRIES} placeholder="Select industry..." />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="flabel mb-3">Selected Competencies ({selectedIds.length})</label>
-                    <div className="grid grid-cols-1 gap-2 max-h-[300px] overflow-y-auto pr-2">
-                      {Object.values(COMP_LIBRARY).map(comp => (
-                        <div 
-                          key={comp.id}
-                          className={`p-3 rounded border text-xs cursor-pointer flex justify-between items-center transition-colors ${selectedIds.includes(comp.id) ? 'border-[var(--gold)] bg-[var(--gold)]/5' : 'border-[var(--br)] bg-black/20'}`}
-                          onClick={() => {
-                            setSelectedIds(prev => prev.includes(comp.id) ? prev.filter(x => x !== comp.id) : [...prev, comp.id]);
-                          }}
-                        >
-                          <div className="flex items-center gap-2">
-                            <CompIcon iconName={comp.icon} category={comp.category} size={12} />
-                            <span className={selectedIds.includes(comp.id) ? 'text-[var(--gold)] font-bold' : 'text-[var(--muted)]'}>{comp.label}</span>
-                          </div>
-                          {selectedIds.includes(comp.id) && <Check size={12} className="text-[var(--gold)]" />}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-6 border-t border-[var(--br)] bg-[var(--s1)] flex justify-end gap-4">
-                <button className="btn btn-ghost" onClick={() => setShowCreateModal(false)}>Cancel</button>
-                <button 
-                  className="btn btn-gold" 
-                  onClick={createAssessment}
-                  disabled={isCreating || !candidateName || !candidateEmail || !roleTitle || selectedIds.length === 0}
-                >
-                  {isCreating ? "Generating..." : "Generate Candidate Link"}
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
