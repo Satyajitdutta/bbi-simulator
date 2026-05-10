@@ -563,6 +563,7 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
   }, [isCandidateView, token]);
 
   const [candidateName, setCandidateName] = useState("");
+  const [candidateEmail, setCandidateEmail] = useState("");
   const [roleTitle, setRoleTitle] = useState("");
   const [industry, setIndustry] = useState("Technology / SaaS");
   const [managerName, setManagerName] = useState("");
@@ -633,8 +634,10 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
   };
 
   const publishAsAssessment = async () => {
-    const email = prompt("Enter Candidate Email to send this assessment:");
-    if (!email) return;
+    if (!candidateEmail) {
+      alert("Please provide a Candidate Email before publishing.");
+      return;
+    }
     
     setIsAssessmentCreating(true);
     try {
@@ -647,15 +650,12 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
         .from('bbi_assessments')
         .insert({
           candidate_name: candidateName,
-          candidate_email: email,
+          candidate_email: candidateEmail,
           role_title: roleTitle,
           industry,
           org_dna: orgDNA,
           team_context: teamContext,
           selected_competencies: selectedIds,
-          // We store the CUSTOMIZED scenarios in a new column or full_report_json equivalent
-          // For now, let's assume the assessment will fetch these if we store them in a 'scenarios' jsonb column
-          // Adding scenarios to the table (need SQL update usually, but for MVP we can use full_report_json)
           created_by: session?.user?.id
         })
         .select()
@@ -664,7 +664,7 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
       if (error) throw error;
       setLastGeneratedAssessment(data);
       alert("Assessment Link Generated! You can find it in your Admin Dashboard.");
-      setPhase("SETUP"); // Back to dashboard mode
+      setPhase("SETUP"); 
     } catch (e) {
       console.error(e);
       alert("Failed to publish assessment.");
@@ -1131,6 +1131,7 @@ Return ONLY valid JSON with this schema:
                   </div>
                   <div className="card-body">
                     <GlowInput label="Candidate Name" value={candidateName} onChange={setCandidateName} placeholder="e.g. Jane Doe" />
+                    <GlowInput label="Candidate Email" value={candidateEmail} onChange={setCandidateEmail} placeholder="e.g. jane@example.com" />
                     <GlowInput label="Role Assessed For" value={roleTitle} onChange={setRoleTitle} placeholder="e.g. Senior Director of Product" />
 
                     {/* ── HIRING MANAGER PERSONALIZATION ── */}
