@@ -24,7 +24,13 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     return () => subscription.unsubscribe();
   }, []);
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <div className="app flex items-center justify-center">
+        <div className="spinner" />
+      </div>
+    );
+  }
   if (!session) return <Navigate to="/login" />;
   return <>{children}</>;
 };
@@ -39,12 +45,19 @@ export default function App() {
             <Simulator />
           </ProtectedRoute>
         } />
+        <Route path="/admin" element={
+          <ProtectedRoute>
+            <Simulator />
+          </ProtectedRoute>
+        } />
         <Route path="/assess/:token" element={<Simulator isCandidateView={true} />} />
         <Route path="/review/:candidateId" element={
           <ProtectedRoute>
             <Review />
           </ProtectedRoute>
         } />
+        {/* Catch-all to prevent blank pages */}
+        <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </BrowserRouter>
   );
