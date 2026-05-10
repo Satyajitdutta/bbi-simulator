@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { AnimatePresence, motion } from "motion/react";
 // @google/genai SDK kept for type compatibility only — API calls use direct REST fetch
-import { Check, ChevronRight, Mic, MicOff, Play, Square } from "lucide-react";
+import { Check, ChevronRight, Mic, MicOff, Play, Square, Link as LinkIcon } from "lucide-react";
 import { COMP_LIBRARY, CAT_META, DNA_CATEGORIES, TEAM_DYNAMIC_TEMPLATES, INDUSTRIES } from "../data/bbi_metadata";
 import CompIcon from "../components/CompIcon";
 import CustomSelect from "../components/CustomSelect";
