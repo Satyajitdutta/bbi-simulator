@@ -175,6 +175,47 @@ async function fetchSarvamSTT(audioBlob: Blob): Promise<string> {
   }
 }
 
+async function uploadToSupabase(blob: Blob, path: string): Promise<string | null> {
+  try {
+    const { getSupabase } = await import("../lib/supabase");
+    const supabase = getSupabase();
+    
+    // Attempt to upload to 'candidate-recordings' bucket
+    const { data, error } = await supabase.storage
+      .from('candidate-recordings')
+      .upload(path, blob, {
+        contentType: blob.type,
+        upsert: true
+      });
+    
+    if (error) {
+      console.warn("Supabase Storage Error (ensure 'candidate-recordings' bucket exists):", error);
+      return null;
+    }
+    
+    const { data: { publicUrl } } = supabase.storage
+      .from('candidate-recordings')
+      .getPublicUrl(path);
+      
+    return publicUrl;
+  } catch (e) {
+    console.error("Upload helper failed:", e);
+    return null;
+  }
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = (reader.result as string).split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 /* ─── PROMPTS ─────────────────────────────────────────────── */
 function scenarioPrompt(comp: any, roleTitle: string, industry: string, orgDNA: string, previousContext: string) {
   return `You are an expert BBI scenario designer. Generate a completely unique, realistic immersive trigger scenario for a leadership assessment session.
@@ -198,30 +239,38 @@ ${previousContext ? `- CRITICAL: Based on the Previous Assessment Context, dynam
 function scoringPrompt(comp: any, scenario: any, response: any, orgDNA: string) {
   const r = response;
   const answered = r.transcript && r.transcript.trim().length > 10;
-  return `You are a senior Talent Acquisition evaluator scoring a Behavior-Based Interview response.
+  return `You are a senior Talent Acquisition evaluator scoring a Behavior-Based Interview response. 
+Your goal is to be a CRITICAL SKEPTIC. Do not be fooled by good grammar or a "perfect STAR structure" if the content is generic or irrelevant.
 
 COMPETENCY: ${comp.label}
 RESEARCH BASIS: ${comp.research}
 ${orgDNA ? `ORG-SPECIFIC BEHAVIORAL DNA (Baseline for "Excellent"): ${orgDNA}` : ""}
 
 SCENARIO PRESENTED TO CANDIDATE:
-${scenario.scene_setter}
-${scenario.trigger_content}
-${scenario.cta}
-
-BEHAVIORAL OBSERVATION SCALE (BOS):
-1 - ${comp.bos[1]}
-2 - ${comp.bos[2]}
-3 - ${comp.bos[3]}
-4 - ${comp.bos[4]}
-5 - ${comp.bos[5]}
+Scene: ${scenario.scene_setter}
+Trigger: ${scenario.trigger_content}
+Mandatory Question (CTA): ${scenario.cta}
 
 CANDIDATE'S SPOKEN RESPONSE:
 Transcript: ${r.transcript || "NOT PROVIDED"}
 
-${!answered ? "NOTE: Candidate skipped this competency entirely. Score accordingly." : ""}
+CRITICAL EVALUATION RULES:
+1. MANDATORY RELEVANCE CHECK: Does the transcript specifically address the situation and question asked in the SCENARIO? 
+   - If the candidate talks about a different topic, even perfectly, they MUST receive a SCORE of 1 and a RELEVANCE_SCORE of 0.
+   - If the candidate uses generic business platitudes without specific examples, penalize heavily.
+2. AUTHENTICITY CHECK: Does this sound like a real person's unique experience, or a generic AI-generated template (like a basic STAR response from ChatGPT/Gemini)?
+   - Look for specific names, data points, or unique industry tensions. Lack of these indicates low authenticity.
+3. SCORING CALIBRATION:
+   - 1: Irrelevant, generic, or no evidence provided.
+   - 2-3: Vague evidence, partially relevant, or lacks specific results.
+   - 4-5: Highly specific, authentic evidence that directly addresses the scenario's tension and aligns with Org DNA.
 
-Evaluate the quality of behavioral evidence from their spoken transcript. Look for specificity, ownership of action, measurable outcomes, and depth of reflection indicating standard STAR format. ${orgDNA ? "Calibrate your definition of a '5' against the provided ORG-SPECIFIC BEHAVIORAL DNA." : ""}`;
+BEHAVIORAL OBSERVATION SCALE (BOS) REFERENCE:
+1 - ${comp.bos[1]}
+2 - ${comp.bos[2]}
+3 - ${comp.bos[3]}
+4 - ${comp.bos[4]}
+5 - ${comp.bos[5]}`;
 }
 
 function characterReportPrompt(roleTitle: string, candidateName: string, compResults: any[], teamContext: string) {
@@ -238,6 +287,41 @@ ${teamContext ? `EXISTING TEAM DYNAMIC (For Layer 4 Composition Fit Analysis): $
 
 Based on the patterns across all responses, generate a rich character mapping profile. Be direct and evidence-based. ${teamContext ? "Include a strict analysis on whether their demonstrated behaviors act as a synergistic addition or a disruptive risk to the existing team dynamic." : ""}`;
 }
+
+function securityAnalysisPrompt(transcript: string) {
+  return `Analyze the following interview response for behavioral and security integrity. 
+Look for:
+1. Stress and Pressure Markers: Sudden shifts in speech pattern, excessive verbal fillers, or disjointed logic.
+2. Coaching/Prompting Detection: Unnatural pauses followed by perfectly structured answers, reading from a script, or phrasing that sounds like an AI or coach's prompt.
+3. Robotic/AI Pattern Detection: Check if the response is too "perfectly STAR formatted" or uses repetitive AI-style transitional phrases (e.g., "The situation was...", "My specific task involved...", "The measurable result was...").
+4. Emotional Tone: Consistency of confidence vs. defensive posturing.
+
+CANDIDATE TRANSCRIPT:
+${transcript}
+
+Return ONLY valid JSON with this schema:
+{
+  "stress_level": "Low/Medium/High",
+  "prompting_detected": boolean,
+  "ai_pattern_detected": boolean,
+  "confidence_score": 0-100,
+  "integrity_signal": "Red/Amber/Green",
+  "reasoning": "Brief explanation of the signals detected, including any AI-like robotic structures found"
+}`;
+}
+
+const securitySchema = {
+  type: "object",
+  properties: {
+    stress_level: { type: "string" },
+    prompting_detected: { type: "boolean" },
+    ai_pattern_detected: { type: "boolean" },
+    confidence_score: { type: "integer" },
+    integrity_signal: { type: "string" },
+    reasoning: { type: "string" },
+  },
+  required: ["stress_level", "prompting_detected", "ai_pattern_detected", "confidence_score", "integrity_signal", "reasoning"],
+};
 
 /* ─── SCHEMAS (plain JSON Schema — no SDK types needed) ───── */
 const scenarioSchema = {
@@ -257,6 +341,17 @@ const scoringSchema = {
   properties: {
     score:         { type: "number" },
     score_label:   { type: "string" },
+    relevance_score: { type: "number", description: "0-100 score on how directly the answer addresses the scenario CTA" },
+    alignment_check: { 
+      type: "object", 
+      properties: {
+        matches_scene: { type: "boolean", description: "Does the answer address the specific scene context?" },
+        answers_cta: { type: "boolean", description: "Does the answer directly respond to the 'Mandatory Question' asked?" },
+        mismatch_reason: { type: "string", description: "Explanation if there is a mismatch between question and answer" }
+      },
+      required: ["matches_scene", "answers_cta"]
+    },
+    is_authentic:  { type: "boolean", description: "Whether the answer sounds like a real human experience vs a generic AI template" },
     bos_match:     { type: "string" },
     star_completeness: {
       type: "object",
@@ -440,22 +535,46 @@ export default function App() {
   // Interview State
   const [currentIdx, setCurrentIdx] = useState(0);
   const [scenarios, setScenarios] = useState<Record<string, any>>({});
-  const [responses, setResponses] = useState<Record<string, { transcript: string }>>({});
+  const [responses, setResponses] = useState<Record<string, { transcript: string; videoUrl?: string; security?: any }>>({});
   const [scores, setScores] = useState<Record<string, any>>({});
-  const [currentResponse, setCurrentResponse] = useState({ transcript: "" });
+  const [currentResponse, setCurrentResponse] = useState<{ transcript: string; videoBlob?: Blob }>({ transcript: "" });
   const [isGeneratingScenario, setIsGeneratingScenario] = useState(false);
   const [scenarioError, setScenarioError] = useState<string | null>(null);
   const [fetchingScoreId, setFetchingScoreId] = useState<string | null>(null);
+
+  // Integrity/Proctoring State
+  const [focusLossCount, setFocusLossCount] = useState(0);
 
   // Voice State
   const [isRecording, setIsRecording] = useState(false);
   const [isSpeakingManager, setIsSpeakingManager] = useState(false);
   const [isSarvamProcessing, setIsSarvamProcessing] = useState(false);
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  const chunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const ttsAutoPlayedRef = useRef<Set<string>>(new Set());
+
+  // Proctoring listeners
+  useEffect(() => {
+    if (phase !== "INTERVIEW") return;
+
+    const handleBlur = () => {
+      setFocusLossCount(prev => prev + 1);
+      console.warn("[SECURITY] Focus lost. Integrity signal logged.");
+    };
+
+    window.addEventListener('blur', handleBlur);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') handleBlur();
+    });
+
+    return () => {
+      window.removeEventListener('blur', handleBlur);
+      document.removeEventListener('visibilitychange', handleBlur);
+    };
+  }, [phase]);
 
   // Video State
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -555,21 +674,44 @@ export default function App() {
   const startRecording = async () => {
     if (isRecording || isSpeakingManager) return;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      // Get audio stream
+      const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Combine with camera stream if available
+      let combinedStream = audioStream;
+      if (cameraStream) {
+        combinedStream = new MediaStream([
+          ...cameraStream.getVideoTracks(),
+          ...audioStream.getAudioTracks()
+        ]);
+      }
+
+      // Prefer webm for broad compatibility with MediaRecorder
+      const mediaRecorder = new MediaRecorder(combinedStream, {
+        mimeType: 'video/webm;codecs=vp8,opus'
+      });
+      
       mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
+      chunksRef.current = [];
 
       mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+        if (e.data.size > 0) chunksRef.current.push(e.data);
       };
 
       mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/wav" });
+        // Stop audio tracks only, keep camera tracks for preview
+        audioStream.getTracks().forEach(t => t.stop());
+        
+        const blob = new Blob(chunksRef.current, { type: "video/webm" });
+        
+        // Update current response with the video blob
+        setCurrentResponse(r => ({ ...r, videoBlob: blob }));
+
         setIsSarvamProcessing(true);
-        const text = await fetchSarvamSTT(audioBlob);
+        // We still send the blob to Sarvam. Most modern STT can extract audio from webm.
+        const text = await fetchSarvamSTT(blob);
         setIsSarvamProcessing(false);
+        
         if (text && text.trim().length > 0) {
           setCurrentResponse(r => ({
             ...r,
@@ -585,7 +727,7 @@ export default function App() {
       // Auto-stop after 30 seconds
       recordingTimerRef.current = setTimeout(() => stopRecording(), 30000);
     } catch (e) {
-      console.error("Mic access denied:", e);
+      console.error("Recording access denied:", e);
     }
   };
 
@@ -669,10 +811,33 @@ export default function App() {
     const compId = selectedIds[currentIdx];
     const comp = COMP_LIBRARY[compId];
     const scenario = scenarios[compId];
-    const resPayload = skip ? { transcript: "" } : currentResponse;
+    const resPayload: any = skip ? { transcript: "" } : { ...currentResponse };
+
+    setFetchingScoreId(compId);
+
+    // 1. Security Analysis (parallel with scoring)
+    if (!skip && resPayload.transcript) {
+       callGenAI(securityAnalysisPrompt(resPayload.transcript), securitySchema).then(sec => {
+         resPayload.security = sec;
+         setResponses(prev => ({ ...prev, [compId]: { ...prev[compId], security: sec } }));
+       });
+    }
+
+    // 2. Video Upload (if blob exists)
+    if (!skip && resPayload.videoBlob) {
+      setIsUploadingVideo(true);
+      const path = `recordings/${candidateName.replace(/\s/g, '_')}_${compId}_${Date.now()}.webm`;
+      uploadToSupabase(resPayload.videoBlob, path).then(url => {
+        if (url) {
+          resPayload.videoUrl = url;
+          setResponses(prev => ({ ...prev, [compId]: { ...prev[compId], videoUrl: url } }));
+        }
+        setIsUploadingVideo(false);
+      });
+    }
 
     setResponses(prev => ({ ...prev, [compId]: resPayload }));
-    setFetchingScoreId(compId);
+    
     callGenAI(scoringPrompt(comp, scenario, resPayload, orgDNA), scoringSchema).then(score => {
       setScores(prev => ({ ...prev, [compId]: score }));
       setFetchingScoreId(null);
@@ -742,6 +907,7 @@ Return ONLY valid JSON with this schema:
 
     const finalReport = await finalReportPromise;
     if (gotData && finalReport) finalReport.got_consistency = gotData;
+    if (finalReport) finalReport.competency_details = compResults;
 
     let savedId = null;
     try {
@@ -758,7 +924,8 @@ Return ONLY valid JSON with this schema:
           fit_signal: finalReport?.fit_signal,
           executive_summary: finalReport?.executive_summary,
           got_consistency_score: gotData?.consistency_score,
-          full_report_json: finalReport,
+          integrity_warnings: focusLossCount,
+          full_report_json: { ...finalReport, focus_loss_count: focusLossCount },
           created_at: new Date().toISOString()
         });
         if (error) { console.error("Supabase insert error:", error); savedId = null; }
@@ -1468,7 +1635,10 @@ Return ONLY valid JSON with this schema:
                   <div className="flex flex-col gap-4">
 
                     {/* Scenario Card */}
-                    <div className="card">
+                    <div className="card lockdown" 
+                         onContextMenu={e => e.preventDefault()}
+                         onCopy={e => e.preventDefault()}
+                         onPaste={e => e.preventDefault()}>
                       <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--br)]"
                         style={{ background: "var(--bg)" }}>
                         <div className="flex items-center gap-2">
@@ -1612,7 +1782,16 @@ Return ONLY valid JSON with this schema:
                     </motion.div>
                   </div>
                   <motion.button
-                    className="btn btn-outline h-fit"
+                    className="btn btn-outline h-fit no-print"
+                    onClick={() => window.print()}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.97 }}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                    Print Report
+                  </motion.button>
+                  <motion.button
+                    className="btn btn-outline h-fit no-print"
                     onClick={restartSimulation}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.97 }}

@@ -80,15 +80,100 @@ export default function Review() {
               <div><span className="text-[var(--tdim)] text-xs uppercase tracking-wider block">Predicted Fit</span>{reportData.fit_signal}</div>
             </div>
 
+            {/* INTEGRITY METRICS */}
+            <div className="grid grid-cols-2 gap-4 mb-6 pt-4 border-t border-[var(--bd)]">
+              <div>
+                <span className="text-[var(--tdim)] text-[10px] uppercase tracking-wider block mb-1">Tab-Switch Warnings</span>
+                <span className={`text-sm font-bold ${reportData.integrity_warnings > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                  {reportData.integrity_warnings || 0} detections
+                </span>
+              </div>
+              <div>
+                <span className="text-[var(--tdim)] text-[10px] uppercase tracking-wider block mb-1">Focus Mode</span>
+                <span className="text-sm font-bold text-white">Virtual Proctoring Active</span>
+              </div>
+            </div>
+
             <div className="text-sm leading-relaxed mb-6">
                <h3 className="text-xs uppercase text-[var(--gold)] font-bold mb-2 tracking-wider">Executive Summary</h3>
                <p>{reportData.executive_summary}</p>
             </div>
 
-            <div className="text-sm leading-relaxed border-t border-[var(--bd)] pt-4">
+            <div className="text-sm leading-relaxed border-t border-[var(--bd)] pt-4 mb-6">
                <h3 className="text-[10px] uppercase text-[#4da6ff] font-bold mb-2 tracking-wider">GOT Consistency Score</h3>
                <div className="text-2xl font-bold text-white mb-2">{reportData.got_consistency_score || "N/A"}/100</div>
             </div>
+
+            {/* ── VIDEO & SECURITY AUDIT ── */}
+            {reportData.full_report_json?.competency_details && (
+              <div className="border-t border-[var(--bd)] pt-6">
+                <h3 className="text-xs uppercase text-[var(--gold)] font-bold mb-4 tracking-wider">Interview Recording & Security Audit</h3>
+                <div className="space-y-6">
+                  {reportData.full_report_json.competency_details.map((item: any, idx: number) => (
+                    <div key={idx} className="bg-[#0a0d14] rounded-lg border border-[var(--bd)] overflow-hidden">
+                      <div className="p-3 bg-[var(--s2)] flex justify-between items-center border-b border-[var(--bd)]">
+                        <span className="text-xs font-bold text-white">{item.comp.label}</span>
+                        <span className="text-[10px] text-[var(--tdim)] uppercase">Score: {item.scoreData?.score}/5</span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
+                        {/* Video Column */}
+                        <div className="space-y-2">
+                          <p className="text-[10px] text-[var(--tdim)] uppercase font-bold">Session Recording</p>
+                          {item.response?.videoUrl ? (
+                            <video 
+                              src={item.response.videoUrl} 
+                              controls 
+                              className="w-full rounded bg-black border border-[var(--bd)] aspect-video"
+                            />
+                          ) : (
+                            <div className="w-full aspect-video bg-black/40 rounded border border-dashed border-[var(--bd)] flex items-center justify-center text-[10px] text-[var(--tdim)]">
+                              No video recording available
+                            </div>
+                          )}
+                        </div>
+                        {/* Security Column */}
+                        <div className="space-y-3">
+                          <p className="text-[10px] text-[var(--tdim)] uppercase font-bold">AI Security Analysis</p>
+                          {item.response?.security ? (
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between bg-black/40 p-2 rounded">
+                                <span className="text-[10px] text-[var(--tdim)]">Integrity Signal</span>
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                  item.response.security.integrity_signal === 'Red' ? 'bg-red-900/40 text-red-400' :
+                                  item.response.security.integrity_signal === 'Amber' ? 'bg-amber-900/40 text-amber-400' :
+                                  'bg-green-900/40 text-green-400'
+                                }`}>{item.response.security.integrity_signal}</span>
+                              </div>
+                              <div className="flex items-center justify-between bg-black/40 p-2 rounded">
+                                <span className="text-[10px] text-[var(--tdim)]">Stress Level</span>
+                                <span className="text-[10px] text-white font-medium">{item.response.security.stress_level}</span>
+                              </div>
+                              <div className="flex items-center justify-between bg-black/40 p-2 rounded">
+                                <span className="text-[10px] text-[var(--tdim)]">Coaching Detected</span>
+                                <span className={`text-[10px] font-bold ${item.response.security.prompting_detected ? 'text-red-400' : 'text-green-400'}`}>
+                                  {item.response.security.prompting_detected ? 'YES' : 'NO'}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-[var(--tdim)] leading-relaxed italic mt-2">
+                                "{item.response.security.reasoning}"
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-[10px] text-[var(--tdim)] italic">Security analysis not performed or unavailable.</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="px-4 pb-4">
+                        <p className="text-[10px] text-[var(--tdim)] uppercase font-bold mb-1">Transcript</p>
+                        <p className="text-[11px] text-[var(--tdim)] line-clamp-2 hover:line-clamp-none transition-all cursor-pointer">
+                          {item.response?.transcript || "No transcript available."}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
