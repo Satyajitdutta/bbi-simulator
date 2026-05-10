@@ -1359,7 +1359,7 @@ Return ONLY valid JSON with this schema:
                         whileHover={{ scale: 1.01 }}
                         whileTap={{ scale: 0.98 }}
                       >
-                        Start Simulation <ChevronRight size={16} />
+                        {isCandidateView ? "Start Simulation" : "Prepare & Edit Scenarios"} <ChevronRight size={16} />
                       </motion.button>
                     </div>
                   </div>
