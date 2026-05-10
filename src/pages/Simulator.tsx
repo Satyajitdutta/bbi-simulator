@@ -1117,6 +1117,55 @@ Return ONLY valid JSON with this schema:
       </header>
 
       <main className="main">
+        {/* ─── CANDIDATE ENTRY GATE ─── */}
+        {isCandidateView && phase === "INTERVIEW" && !isStarted && (
+          <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-[var(--bg)]">
+            <motion.div 
+              className="card w-full max-w-xl p-10 text-center border-[var(--gold)]"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+            >
+              <div className="w-20 h-20 rounded-full bg-[var(--gold)]/10 text-[var(--gold)] flex items-center justify-center mx-auto mb-8 border border-[var(--gold)]/20 shadow-[0_0_30px_rgba(201,149,58,0.15)]">
+                <Play size={40} fill="var(--gold)" />
+              </div>
+              <h1 className="text-2xl font-bold mb-4 text-white uppercase tracking-tight">Ready to Begin?</h1>
+              <p className="text-[var(--muted)] text-sm mb-8 leading-relaxed">
+                Hi {candidateName}, you've been invited to an AI-driven behavioral simulation for the <strong>{roleTitle}</strong> role.
+              </p>
+              
+              <div className="space-y-4 mb-10 text-left bg-black/40 p-5 rounded-lg border border-[var(--br)]">
+                <div className="flex gap-3 items-start text-xs">
+                  <div className="w-5 h-5 rounded bg-[var(--green)]/10 text-[var(--green)] flex items-center justify-center shrink-0 mt-0.5">✓</div>
+                  <p className="text-[var(--text)]">Enable <strong>Camera & Mic</strong> when prompted.</p>
+                </div>
+                <div className="flex gap-3 items-start text-xs">
+                  <div className="w-5 h-5 rounded bg-[var(--green)]/10 text-[var(--green)] flex items-center justify-center shrink-0 mt-0.5">✓</div>
+                  <p className="text-[var(--text)]">Ensure you are in a <strong>Quiet Environment</strong>.</p>
+                </div>
+                <div className="flex gap-3 items-start text-xs">
+                  <div className="w-5 h-5 rounded bg-[var(--green)]/10 text-[var(--green)] flex items-center justify-center shrink-0 mt-0.5">✓</div>
+                  <p className="text-[var(--text)]"><strong>Virtual Proctoring</strong> is active (tab-switching is logged).</p>
+                </div>
+              </div>
+
+              <motion.button 
+                className="btn btn-gold btn-full h-14 text-lg"
+                onClick={() => {
+                  setIsStarted(true);
+                  // Trigger initial scenario fetch/play
+                  const currentCompId = selectedIds[currentIdx];
+                  const scenario = scenarios[currentCompId];
+                  if (scenario) playTTS(buildTTSText(scenario));
+                }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                Start Assessment Now
+              </motion.button>
+            </motion.div>
+          </div>
+        )}
+
         <AnimatePresence mode="wait">
 
           {/* ─── SETUP PHASE ──────────────────────────────────── */}
