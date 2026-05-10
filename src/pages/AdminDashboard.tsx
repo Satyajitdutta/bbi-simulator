@@ -49,6 +49,45 @@ export default function AdminDashboard() {
     window.location.href = "/login";
   };
 
+  const updateAssessment = async (id: string, currentName: string, currentEmail: string, currentRole: string) => {
+    const name = prompt("Update Candidate Name:", currentName);
+    const email = prompt("Update Candidate Email:", currentEmail);
+    const role = prompt("Update Role Title:", currentRole);
+    
+    if (!name || !email || !role) return;
+
+    try {
+      const supabase = getSupabase();
+      const { error } = await supabase
+        .from('bbi_assessments')
+        .update({ candidate_name: name, candidate_email: email, role_title: role })
+        .eq('id', id);
+
+      if (error) throw error;
+      fetchAssessments();
+    } catch (e) {
+      console.error(e);
+      alert("Update failed.");
+    }
+  };
+
+  const deleteAssessment = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this assessment?")) return;
+    try {
+      const supabase = getSupabase();
+      const { error } = await supabase
+        .from('bbi_assessments')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      fetchAssessments();
+    } catch (e) {
+      console.error(e);
+      alert("Delete failed.");
+    }
+  };
+
   if (view === "SIMULATOR") {
     return (
       <div className="relative">
@@ -137,6 +176,12 @@ export default function AdminDashboard() {
                 <div className="flex items-center gap-3">
                   {a.status === 'pending' ? (
                     <>
+                      <button className="btn btn-sm btn-ghost" title="Edit Assessment" onClick={() => updateAssessment(a.id, a.candidate_name, a.candidate_email, a.role_title)}>
+                        <Edit3 size={14} />
+                      </button>
+                      <button className="btn btn-sm btn-ghost text-red-400 hover:text-red-300" title="Delete" onClick={() => deleteAssessment(a.id)}>
+                        <X size={14} />
+                      </button>
                       <button className="btn btn-sm btn-ghost" onClick={() => {
                         const url = `${window.location.origin}/assess/${a.token}`;
                         navigator.clipboard.writeText(url);
