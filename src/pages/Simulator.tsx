@@ -497,7 +497,10 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
                   </div>
                 </div>
               </div>
-              <div className="card p-6">
+              <div className="card p-6 lockdown"
+                   onContextMenu={e => e.preventDefault()}
+                   onCopy={e => e.preventDefault()}
+                   onPaste={e => e.preventDefault()}>
                 {scenarios[selectedIds[currentIdx]] ? (
                   <>
                     <h3 className="text-[var(--gold)] mb-4">{scenarios[selectedIds[currentIdx]].title}</h3>
