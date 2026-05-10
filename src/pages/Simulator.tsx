@@ -917,38 +917,46 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
 
       setFetchingScoreId(compId);
 
-      // 1. Security Analysis (Await this)
+      // --- BACKGROUND TASKS (Non-blocking) ---
+      // 1. Security Analysis
       if (!skip && resPayload.transcript) {
-        try {
-          const sec = await callGenAI(securityAnalysisPrompt(resPayload.transcript), securitySchema);
-          resPayload.security = sec;
-        } catch (e) {
-          console.error("Security analysis failed:", e);
-        }
+        callGenAI(securityAnalysisPrompt(resPayload.transcript), securitySchema).then(sec => {
+          setResponses(prev => ({ 
+            ...prev, 
+            [compId]: { ...prev[compId], security: sec } 
+          }));
+        }).catch(e => console.error("BG Security error:", e));
       }
 
-      // 2. Video Upload (Await this)
+      // 2. Video Upload
       if (!skip && resPayload.videoBlob) {
-        setIsUploadingVideo(true);
         const path = `recordings/${candidateName.replace(/\s/g, '_')}_${compId}_${Date.now()}.webm`;
-        const url = await uploadToSupabase(resPayload.videoBlob, path);
-        if (url) {
-          resPayload.videoUrl = url;
-        }
-        setIsUploadingVideo(false);
+        uploadToSupabase(resPayload.videoBlob, path).then(url => {
+          if (url) {
+            setResponses(prev => ({ 
+              ...prev, 
+              [compId]: { ...prev[compId], videoUrl: url } 
+            }));
+          }
+        }).catch(e => console.error("BG Upload error:", e));
       }
 
+      // Store initial response
       setResponses(prev => ({ ...prev, [compId]: resPayload }));
       
+      // --- CRITICAL TASK (Scoring) ---
       try {
         const score = await callGenAI(scoringPrompt(comp, scenario, resPayload, orgDNA), scoringSchema);
         setScores(prev => ({ ...prev, [compId]: score }));
       } catch (e) {
         console.error("Scoring failed:", e);
+        // Fallback score so app doesn't hang
+        setScores(prev => ({ ...prev, [compId]: { score: 1, reasoning: "Evaluation failed due to technical error." } }));
       }
       
       setFetchingScoreId(null);
 
+      // Move to next step IMMEDIATELY after scoring
       if (currentIdx < selectedIds.length - 1) {
         setCurrentIdx(i => i + 1);
         setCurrentResponse({ transcript: "" });
@@ -956,6 +964,9 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
       } else {
         setPhase("REPORT_LOADING");
       }
+    } catch (err) {
+      console.error("Critical submission error:", err);
+      alert("Submission encountered an error. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
