@@ -1771,10 +1771,41 @@ Return ONLY valid JSON with this schema:
                         <div className="rounded-lg p-4"
                           style={{ background: "rgba(201,149,58,0.06)", border: "1px solid rgba(201,149,58,0.2)" }}>
                           <p className="text-[10px] font-bold text-[var(--gold)] uppercase tracking-widest mb-2">Your Prompt</p>
-                          <p className="text-sm text-[var(--text)] leading-relaxed">
-                            {scenarios[selectedIds[currentIdx]].cta}
-                          </p>
+                          
+                          {/* EDITABLE CTA FOR ADMINS */}
+                          {!isCandidateView ? (
+                            <textarea
+                              className="finput bg-black/20 text-sm leading-relaxed border-none p-0 focus:ring-0 w-full"
+                              value={scenarios[selectedIds[currentIdx]].cta}
+                              onChange={e => updateScenarioField(selectedIds[currentIdx], 'cta', e.target.value)}
+                              rows={3}
+                            />
+                          ) : (
+                            <p className="text-sm text-[var(--text)] leading-relaxed">
+                              {scenarios[selectedIds[currentIdx]].cta}
+                            </p>
+                          )}
                         </div>
+
+                        {/* PUBLISH BUTTON FOR ADMINS */}
+                        {!isCandidateView && (
+                          <div className="mt-4 flex gap-3">
+                            <button 
+                              className="btn btn-gold btn-full gap-2"
+                              onClick={publishAsAssessment}
+                              disabled={isAssessmentCreating}
+                            >
+                              <LinkIcon size={16} /> {isAssessmentCreating ? "Publishing..." : "Publish as Assessment Link"}
+                            </button>
+                            <button 
+                              className="btn btn-outline"
+                              onClick={() => fetchScenario(selectedIds[currentIdx])}
+                              title="Regenerate this specific scenario"
+                            >
+                              Regen
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
 
