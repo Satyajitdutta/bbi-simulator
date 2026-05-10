@@ -16,7 +16,7 @@ export default function AdminDashboard() {
   const [candidateName, setCandidateName] = useState("");
   const [candidateEmail, setCandidateEmail] = useState("");
   const [roleTitle, setRoleTitle] = useState("");
-  const [industry, setIndustry] = useState(INDUSTRIES[0].value);
+  const [industry, setIndustry] = useState(INDUSTRIES[0]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [orgDNA, setOrgDNA] = useState(DNA_CATEGORIES[0].options[0].value);
   const [teamContext, setTeamContext] = useState(TEAM_DYNAMIC_TEMPLATES[0].options[0].value);
