@@ -210,6 +210,9 @@ export default function AdminDashboard() {
                       <a href={`/review/${a.report_id}`} className="btn btn-sm btn-gold">
                         View Report <ChevronRight size={14} />
                       </a>
+                      <button className="btn btn-sm btn-ghost text-red-400 hover:text-red-300 ml-2" title="Delete Assessment" onClick={() => deleteAssessment(a.id)}>
+                        <X size={14} />
+                      </button>
                     </>
                   )}
                 </div>
