@@ -1992,6 +1992,65 @@ Return ONLY valid JSON with this schema:
                 </div>
               </motion.div>
 
+              {/* ─── INTERVIEW AUDIT TRAIL (Q&A) ─── */}
+              <motion.div
+                className="card mb-6 overflow-hidden"
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.55 }}
+              >
+                <div className="card-hd bg-gradient-to-r from-[rgba(77,166,255,0.05)] to-transparent border-b border-[var(--br)]">
+                  <h3 className="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                    Interview Audit Trail (Full Q&A)
+                  </h3>
+                </div>
+                <div className="card-body p-0">
+                  <div className="divide-y divide-[var(--br)]">
+                    {report.competency_details?.map((item: any, idx: number) => (
+                      <div key={idx} className="p-6 hover:bg-black/20 transition-colors">
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="flex items-center gap-3">
+                            <CompIcon iconName={item.comp.icon} category={item.comp.category} size={14} />
+                            <div>
+                              <div className="text-[11px] font-bold text-white uppercase tracking-wider">{item.comp.label}</div>
+                              <div className="text-[10px] text-[var(--muted)]">{item.scenario.type} Scenario</div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm font-bold text-[var(--gold)]">{item.scoreData?.score}/5</div>
+                            <div className={`text-[9px] font-bold uppercase ${item.scoreData?.relevance_score < 50 ? 'text-red-400' : 'text-green-400'}`}>
+                              Alignment: {item.scoreData?.relevance_score || 0}%
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          <div className="bg-[var(--s3)] p-3 rounded-lg border border-[var(--br)]">
+                            <p className="text-[9px] font-bold text-[var(--gold)] uppercase tracking-widest mb-1.5 opacity-70">Question Asked</p>
+                            <p className="text-xs text-white leading-relaxed">{item.scenario.cta}</p>
+                          </div>
+                          
+                          <div className="pl-4 border-l-2 border-[var(--br)]">
+                            <p className="text-[9px] font-bold text-[var(--muted)] uppercase tracking-widest mb-1.5">Candidate's Response</p>
+                            <p className="text-xs text-[var(--muted)] leading-relaxed italic whitespace-pre-wrap">
+                              "{item.response?.transcript || "No response provided."}"
+                            </p>
+                          </div>
+
+                          {item.scoreData?.alignment_check?.mismatch_reason && (
+                            <div className="bg-red-950/20 border border-red-900/40 p-3 rounded-lg">
+                              <p className="text-[9px] font-bold text-red-400 uppercase tracking-widest mb-1">Integrity Violation Detected</p>
+                              <p className="text-xs text-red-300 italic">"{item.scoreData.alignment_check.mismatch_reason}"</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+
               <div className="flex gap-4 justify-between items-center mb-12">
                 <motion.button
                   className="btn btn-outline"
