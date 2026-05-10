@@ -524,6 +524,19 @@ export default function App({ isCandidateView = false }: { isCandidateView?: boo
       })
     ]);
 
+    // ─── INTEGRITY OVERRIDE LOGIC ───
+    const securityIssues = res.filter(r => 
+      r.response?.security?.prompting_detected === true || 
+      r.response?.security?.ai_pattern_detected === true ||
+      ['Red', 'Amber', 'low'].includes(r.response?.security?.integrity_signal)
+    );
+
+    if (securityIssues.length > 0) {
+      rep.fit_signal = "🚫 HIGH RISK: POTENTIAL AI FRAUD DETECTED";
+      rep.fit_rationale = `CRITICAL ALERT: The system detected ${securityIssues.length} integrity violations during the interview. Patterns strongly suggest the use of AI-generated responses or external coaching. We recommend automatic rejection or an immediate unproctored validation session. Original AI Fit Signal was: ${rep.fit_signal}.`;
+    }
+    // ──────────────────────────────
+
     const { getSupabase } = await import("../lib/supabase");
     const supabase = getSupabase();
     const sid = crypto.randomUUID();
