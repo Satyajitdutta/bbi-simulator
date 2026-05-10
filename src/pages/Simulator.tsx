@@ -1137,18 +1137,22 @@ Return ONLY valid JSON with this schema:
                   <GlowInput label="Candidate Email" value={candidateEmail} onChange={setCandidateEmail} placeholder="e.g. jane@example.com" />
                   <GlowInput label="Role Assessed For" value={roleTitle} onChange={setRoleTitle} placeholder="e.g. Senior Director of Product" />
 
-                  {/* ── TURNAROUND TIME (TAT) ── */}
-                  <div className="fgrp">
-                    <label className="flabel mt-1" style={{ color: "var(--amber)" }}>
-                      Assessment Deadline (TAT) <span className="text-[9px] opacity-50 normal-case font-normal ml-1">calendar selector</span>
-                    </label>
-                    <input 
-                      type="datetime-local" 
-                      className="finput bg-[#0a0d14]" 
-                      value={deadline}
-                      onChange={e => setDeadline(e.target.value)}
-                    />
-                  </div>
+                    {/* ── TURNAROUND TIME (TAT) ── */}
+                    <div className="fgrp">
+                      <label className="flabel" style={{ color: "var(--amber)" }}>
+                        Assessment Deadline (TAT)
+                      </label>
+                      <input 
+                        type="datetime-local" 
+                        className="finput bg-[#0a0d14] cursor-pointer" 
+                        style={{ colorScheme: "dark" }}
+                        value={deadline}
+                        onChange={e => setDeadline(e.target.value)}
+                      />
+                      <p className="text-[9px] text-[var(--dim)] mt-1.5 leading-relaxed">
+                        Select date and time (AM/PM) for assessment expiry.
+                      </p>
+                    </div>
                     {/* ── HIRING MANAGER PERSONALIZATION ── */}
                     <div className="fgrp">
                       <label className="flabel mt-1" style={{ color: "var(--muted)" }}>
