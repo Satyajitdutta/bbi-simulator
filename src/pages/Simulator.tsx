@@ -2136,8 +2136,10 @@ Return ONLY valid JSON with this schema:
                   </a>
                 )}
               </div>
-            </motion.div>
+            </>
           )}
+        </motion.div>
+      )}
 
         </AnimatePresence>
       </main>
