@@ -12,80 +12,17 @@ import { COMP_LIBRARY, CAT_META, DNA_CATEGORIES, TEAM_DYNAMIC_TEMPLATES, INDUSTR
 import CompIcon from "../components/CompIcon";
 import CustomSelect from "../components/CustomSelect";
 
-/* ─── GEMINI REST API ─────────────────────────────────────── */
-
-async function listGeminiModels(key: string): Promise<string[]> {
-  try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
-    const json = await res.json();
-    if (!res.ok) return [];
-    return (json.models || [])
-      .filter((m: any) => m.supportedGenerationMethods?.includes("generateContent"))
-      .map((m: any) => (m.name as string).replace("models/", ""));
-  } catch { return []; }
-}
+/* ─── GEMINI — proxied server-side via /api/gemini ───────── */
 
 async function callGenAI(prompt: string, schema: any): Promise<any> {
-  const key = import.meta.env.VITE_GEMINI_API_KEY
-    || (process.env as any).VITE_GEMINI_API_KEY
-    || (process.env as any).GEMINI_API_KEY
-    || "";
-  if (!key || key === "MY_GEMINI_API_KEY") {
-    throw new Error("Gemini API key not found. Set GEMINI_API_KEY in Vercel → Settings → Environment Variables.");
-  }
-
-  const available = await listGeminiModels(key);
-  const PREFERRED = [
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-001",
-    "gemini-2.0-flash-lite",
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-001",
-    "gemini-1.5-pro",
-    "gemini-pro",
-  ];
-
-  const toTry = available.length > 0
-    ? PREFERRED.filter(m => available.includes(m)).concat(available.filter(m => !PREFERRED.includes(m)))
-    : PREFERRED;
-
-  if (toTry.length === 0) {
-    throw new Error(`No models found.`);
-  }
-
-  let lastErr = "";
-  for (const model of toTry) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: {
-            responseMimeType: "application/json",
-            responseSchema: schema,
-            temperature: 0.7,
-          },
-        }),
-      });
-
-      const json = await res.json();
-      if (!res.ok) {
-        lastErr = `${model} (${res.status}): ${json?.error?.message || res.statusText}`;
-        continue;
-      }
-
-      const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) { lastErr = `${model}: empty response`; continue; }
-
-      return JSON.parse(text);
-    } catch (e: any) {
-      lastErr = `${model}: ${e?.message || e}`;
-    }
-  }
-
-  throw new Error(`All models failed: ${lastErr}`);
+  const res = await fetch("/api/gemini", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, schema }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json?.error || `Gemini proxy error ${res.status}`);
+  return json.result;
 }
 
 /* ─── TTS TEXT BUILDER ────────────────────────────────────────────── */
@@ -122,9 +59,7 @@ async function fetchSarvamTTS(text: string): Promise<string | null> {
   }
 }
 
-function SARVAM_KEY() {
-  return import.meta.env.VITE_SARVAM_KEY || "";
-}
+/* ─── SARVAM STT — proxied server-side via /api/transcribe ── */
 
 async function fetchSarvamSTT(audioBlob: Blob): Promise<string> {
   try {
@@ -132,10 +67,9 @@ async function fetchSarvamSTT(audioBlob: Blob): Promise<string> {
     formData.append("file", audioBlob, "recording.wav");
     formData.append("language_code", "en-IN");
     formData.append("model", "saaras:v1");
-    const response = await fetch("https://api.sarvam.ai/speech-to-text", {
+    const response = await fetch("/api/transcribe", {
       method: "POST",
-      headers: { "api-subscription-key": SARVAM_KEY() },
-      body: formData
+      body: formData,
     });
     const data = await response.json();
     return data.transcript || "";
